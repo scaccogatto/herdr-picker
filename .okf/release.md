@@ -35,7 +35,7 @@ Triggers on a `v*` tag push or `workflow_dispatch`. Steps, in order: `npm ci`, `
 - **But `npm publish` triggers them anyway.** `package.json`'s `"prepublishOnly": "npm run typecheck && npm run test && npm run build"` runs automatically as an npm lifecycle hook on any `npm publish`, in CI or by hand. So the workflow's explicit `npm run build` and the one inside `prepublishOnly` both run; the build step happens twice. `prepublishOnly` runs `test` (`vitest run`), not `coverage`, `lint`, or `e2e`; those three are exercised only by CI on the push that preceded the tag, never by the release workflow or by `npm publish` itself.
 - **`npm install -g npm@latest`** upgrades the runner's npm to a version new enough for OIDC trusted publishing (npm 11.5.1 or later; an older npm does not speak the trusted-publisher exchange).
 - **Version check:** reads `name` and `version` from `package.json`, runs `npm view "$NAME@$VERSION" version`, and sets `published=true` if that succeeds. The publish step only runs `if: steps.check.outputs.published == 'false'`, so re-running the workflow or pushing a duplicate tag is safe: it never double-publishes.
-- **Publish:** `npm publish --provenance`, with job `permissions: id-token: write` and no `NODE_AUTH_TOKEN` anywhere. The workflow's own comment notes that a token present would make npm skip OIDC.
+- **Publish:** `npm publish --provenance` at `NPM_CONFIG_LOGLEVEL: verbose`, with job `permissions: id-token: write` and no `NODE_AUTH_TOKEN` anywhere; `setup-node` runs without `registry-url`, which would plant an `_authToken=${NODE_AUTH_TOKEN}` placeholder in `.npmrc` that turns a failed OIDC exchange into a misleading `E404`. At verbose level a failed exchange logs `oidc Failed token exchange request with body message: ...` (`package not found` = no trusted publisher matches the run). The workflow's own comment notes that a token present would make npm skip OIDC.
 
 ## One-time trusted-publishing bootstrap
 
@@ -48,7 +48,8 @@ A trusted publisher attaches to a package that already exists (npm/cli#8544 trac
    - Repository: `herdr-picker`
    - Workflow filename: `release.yml`
    - No environment.
-4. Then Publishing access, "Require two-factor authentication and disallow tokens," so no token can ever publish this package again.
+   - Allowed actions: also permit direct publishing with `npm publish`. Configurations created after 2026-09-03 default to `npm stage publish` only, and `release.yml` runs `npm publish`: without this the OIDC exchange succeeds and the PUT fails with `E403 OIDC permission denied for this action`.
+4. Then Publishing access, "Require two-factor authentication and disallow tokens," so no token can ever publish this package again; trusted publishers keep working, they use OIDC tokens, not npm tokens.
 5. `npm logout` (removes the login token from `~/.npmrc`).
 6. Push the `v0.1.0` tag (from "Cutting a release" above) **after** this bootstrap, not before. Pushed early, `release.yml`'s version-check step finds `0.1.0` not yet on the registry, so its publish step still runs `npm publish --provenance`, but no trusted publisher is configured yet and that run fails; it does not double-publish, it just fails red until re-triggered (`workflow_dispatch`) after the bootstrap above. Pushed after, the check finds `0.1.0` already on the registry and skips the publish step cleanly. Every later version is published by the workflow over OIDC, with provenance.
 
