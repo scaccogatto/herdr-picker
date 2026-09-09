@@ -1,6 +1,6 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig, type ViteUserConfig } from 'vitest/config'
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode }): ViteUserConfig => {
   if (mode === 'extension') {
     return {
       publicDir: 'extension',
@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
         lib: {
           entry: { content: 'src/extension/content.ts', background: 'src/extension/background.ts' },
           formats: ['es'],
-          fileName: (_format, name) => `${name}.js`,
+          fileName: (_format: string, name: string) => `${name}.js`,
         },
         outDir: 'dist/extension',
         emptyOutDir: true,
@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
       lib: {
         entry: { host: 'src/host.ts', cli: 'src/cli.ts' },
         formats: ['es'],
-        fileName: (_format, name) => `${name}.js`,
+        fileName: (_format: string, name: string) => `${name}.js`,
       },
       rolldownOptions: {
         external: [/^node:/],
