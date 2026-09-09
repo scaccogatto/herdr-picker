@@ -15,7 +15,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          registry-url: 'https://registry.npmjs.org'
       - run: npm ci
       - run: npm run build
       - run: npm install -g npm@latest
@@ -34,4 +33,7 @@ jobs:
       # Never add NODE_AUTH_TOKEN here: with a token present npm skips OIDC.
       - name: Publish
         if: steps.check.outputs.published == 'false'
+        # verbose: a failed OIDC token exchange only says why at this level
+        env:
+          NPM_CONFIG_LOGLEVEL: verbose
         run: npm publish --provenance
