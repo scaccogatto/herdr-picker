@@ -57,12 +57,24 @@ Nothing from this bootstrap is stored in the repo, in GitHub secrets, or on any 
 
 ## Extension zip and Chrome Web Store
 
-1. `npm run build` (produces `dist/extension/`).
-2. `cd dist/extension && zip -r ../../herdr-picker-<version>.zip .` (for example `herdr-picker-0.1.0.zip`).
-3. Chrome Web Store developer dashboard: upload the zip as a new item the first time, or a new version afterward.
-4. **First upload only:** the dashboard generates the extension's real public key (Package, View public key). Replace the `key` field in `extension/manifest.json` with it, bump the version, commit, and tag a patch release (for example `v0.1.1`).
-   - This is not optional bookkeeping: `extensionIdFromKey` (`cli.ts`) derives the id `install-host` writes into `allowed_origins` from whatever `key` is in the manifest. Until the manifest carries the Store's real key, the id `install-host` derives will not match the id the Store-installed extension actually runs under, and native messaging fails closed with a "no_host" error (see `security.md`).
-5. After that first upload the key never changes again; every later Store update just uploads a new zip built from the same manifest.
+Copy for every dashboard field, the developer-account prerequisites and the asset list live in `store/listing.md`; `npm run store-assets` regenerates the PNGs there from the built extension against the fake herdr.
+
+First submission, in this order:
+
+1. **Draft upload, to harvest the Store key.** The dashboard rejects a manifest `key` that does not belong to an existing item ("key field is not allowed in manifest"), so the first zip is built without it, from a copy so `dist/` stays intact:
+   ```sh
+   npm run build
+   rm -rf /tmp/herdr-picker-store && cp -R dist/extension /tmp/herdr-picker-store
+   node -e "const fs=require('fs'),f='/tmp/herdr-picker-store/manifest.json',m=JSON.parse(fs.readFileSync(f,'utf8'));delete m.key;fs.writeFileSync(f,JSON.stringify(m,null,2)+'\n')"
+   (cd /tmp/herdr-picker-store && zip -r "$OLDPWD/herdr-picker-<version>-store.zip" .)
+   ```
+   Developer dashboard, Add new item, upload it, do not submit.
+2. **Package tab, View public key.** Copy the text between the BEGIN/END lines, remove the newlines, put it in `extension/manifest.json` `key`. From then on every build, the unpacked one included, runs under the Store's id, and `install-host` derives that id (`extensionIdFromKey` in `cli.ts`).
+3. **Patch release with the new key.** Bump `package.json` and `extension/manifest.json`, changelog, commit, tag, push the tag: CI publishes the npm version whose bundled extension carries the Store key.
+4. **Replace the draft's package.** `npm run build`, `(cd dist/extension && zip -r ../../herdr-picker-<version>.zip .)` (the key matches now, keep it), upload it in the draft's Package tab. Fill Store listing, Privacy practices and Distribution from `store/listing.md`. Before submitting, run the manual check once on the real path: load the new `dist/extension/` unpacked, `Ctrl+B` on any page, screenshot switch on, send: the prompt must carry a `Screenshot:` line and the PNG must exist under the temp directory. Submit for review.
+5. **Machines that had the old unpacked build.** Its id no longer matches the host manifest: remove it in `chrome://extensions`, load the new `dist/extension/` or install from the Store, re-run `npx herdr-picker install-host`.
+
+Later versions: zip `dist/extension/` as is and upload it as a new version; the key never changes again.
 
 ## Unpacked loading (interim distribution)
 

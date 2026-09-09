@@ -32,6 +32,7 @@ export async function launchExtension(opts: {
   snapshot: (received: RawReceived[]) => unknown
   handlers?: Record<string, (params: Record<string, unknown>) => unknown>
   installHost?: boolean
+  html?: string
 }): Promise<Harness> {
   // Assert that the extension is built
   const dist = fileURLToPath(new URL('../../dist/', import.meta.url))
@@ -105,7 +106,7 @@ export async function launchExtension(opts: {
   await context.route('http://127.0.0.1/**', (route) => {
     route.fulfill({
       contentType: 'text/html; charset=utf-8',
-      body: FIXTURE_HTML,
+      body: opts.html ?? FIXTURE_HTML,
     })
   })
 

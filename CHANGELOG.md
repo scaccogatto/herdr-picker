@@ -4,6 +4,10 @@ All notable changes to this project are documented here. Conventional Commits; a
 
 ## [Unreleased]
 
+### Build/Tooling
+
+- Chrome Web Store material: `store/listing.md` (every dashboard field), `PRIVACY.md`, and `npm run store-assets`, a gated Playwright spec that renders the screenshots, promo tile and store icon from the built extension against the fake herdr.
+
 ## [0.1.1] - 2026-09-09
 
 ### Bug Fixes
