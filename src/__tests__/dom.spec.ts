@@ -3,8 +3,6 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import {
   PICKED_ATTR,
   HOST_ATTR,
-  parseHotkey,
-  matchesHotkey,
   deepElementFromPoint,
   sourceHint,
   selectorPath,
@@ -21,44 +19,6 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
 
 beforeEach(() => {
   document.body.innerHTML = ''
-})
-
-describe('parseHotkey', () => {
-  it('parses ctrl+b', () => {
-    expect(parseHotkey('ctrl+b')).toEqual({ ctrl: true, shift: false, alt: false, meta: false, key: 'b' })
-  })
-
-  it('parses Cmd+Shift+K case-insensitively', () => {
-    expect(parseHotkey('Cmd+Shift+K')).toEqual({ ctrl: false, shift: true, alt: false, meta: true, key: 'k' })
-  })
-
-  it('parses option+x as alt', () => {
-    expect(parseHotkey('option+x')).toEqual({ ctrl: false, shift: false, alt: true, meta: false, key: 'x' })
-  })
-
-  it('throws when no key token is present', () => {
-    expect(() => parseHotkey('ctrl+')).toThrow('hotkey needs a key')
-  })
-})
-
-describe('matchesHotkey', () => {
-  it('matches when modifiers and key match exactly', () => {
-    const hk = parseHotkey('ctrl+b')
-    const e = new KeyboardEvent('keydown', { key: 'b', ctrlKey: true })
-    expect(matchesHotkey(e, hk)).toBe(true)
-  })
-
-  it('rejects an event with an extra modifier held', () => {
-    const hk = parseHotkey('ctrl+b')
-    const e = new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, shiftKey: true })
-    expect(matchesHotkey(e, hk)).toBe(false)
-  })
-
-  it('matches the key case-insensitively', () => {
-    const hk = parseHotkey('ctrl+b')
-    const e = new KeyboardEvent('keydown', { key: 'B', ctrlKey: true })
-    expect(matchesHotkey(e, hk)).toBe(true)
-  })
 })
 
 describe('deepElementFromPoint', () => {
@@ -470,12 +430,12 @@ describe('popupPathLabel', () => {
 })
 
 describe('spawnHint', () => {
-  it('names the dev workspace for "here" when its label is known', () => {
+  it('names the focused workspace for "here" when its label is known', () => {
     expect(spawnHint('here', 'app')).toBe('split pane in app')
   })
 
   it('falls back to a generic hint for "here" when the label is unknown', () => {
-    expect(spawnHint('here', null)).toBe('split pane next to the dev server')
+    expect(spawnHint('here', null)).toBe('split pane next to the focused pane')
   })
 
   it('always reads "fresh worktree" for "worktree", label or not', () => {

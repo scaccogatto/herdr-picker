@@ -5,61 +5,6 @@ export const PICKED_ATTR = 'data-herdr-picked'
 /** Attribute carried by the picker's own overlay host, used to exclude it from hit-testing and snippets */
 export const HOST_ATTR = 'data-herdr-host'
 
-/** Parsed hotkey spec: which modifiers must be held plus the triggering key */
-export interface Hotkey {
-  ctrl: boolean
-  shift: boolean
-  alt: boolean
-  meta: boolean
-  key: string
-}
-
-const MODIFIER_TOKENS: Record<string, keyof Omit<Hotkey, 'key'>> = {
-  ctrl: 'ctrl',
-  control: 'ctrl',
-  shift: 'shift',
-  alt: 'alt',
-  option: 'alt',
-  meta: 'meta',
-  cmd: 'meta',
-  command: 'meta',
-}
-
-/** Parse a hotkey spec like `ctrl+b` or `Cmd+Shift+K` into a Hotkey */
-export function parseHotkey(spec: string): Hotkey {
-  const hotkey: Hotkey = { ctrl: false, shift: false, alt: false, meta: false, key: '' }
-  let key: string | null = null
-
-  for (const raw of spec.split('+')) {
-    const token = raw.trim().toLowerCase()
-    if (token.length === 0) continue
-
-    const modifier = MODIFIER_TOKENS[token]
-    if (modifier !== undefined) {
-      hotkey[modifier] = true
-      continue
-    }
-
-    key = token
-  }
-
-  if (key === null) throw new Error('hotkey needs a key')
-
-  hotkey.key = key
-  return hotkey
-}
-
-/** Check whether a keyboard event matches a parsed hotkey */
-export function matchesHotkey(e: KeyboardEvent, hk: Hotkey): boolean {
-  return (
-    e.ctrlKey === hk.ctrl &&
-    e.shiftKey === hk.shift &&
-    e.altKey === hk.alt &&
-    e.metaKey === hk.meta &&
-    e.key.toLowerCase() === hk.key
-  )
-}
-
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
 /** Hit-test through shadow DOM boundaries, excluding the picker's own overlay host */
@@ -176,10 +121,10 @@ export function popupPathLabel(path: string): string | null {
   return `in ${segments.slice(0, -1).join(' › ')}`
 }
 
-/** Visible "where" text for a spawn row / the To field's spawn hint: `kind` picks the action, `devLabel` (the dev server's own workspace label, or null when unknown) fills in the location for "here" */
+/** Visible "where" text for a spawn row / the To field's spawn hint: `kind` picks the action, `devLabel` (the focused workspace label, or null when unknown) fills in the location for "here" */
 export function spawnHint(kind: 'here' | 'worktree', devLabel: string | null): string {
   if (kind === 'worktree') return 'fresh worktree'
-  return devLabel !== null ? `split pane in ${devLabel}` : 'split pane next to the dev server'
+  return devLabel !== null ? `split pane in ${devLabel}` : 'split pane next to the focused pane'
 }
 
 /** Truncate from the start, keeping the tail: for text where the end matters more than the beginning (e.g. a file path's line:col, the useful half of a source hint) */

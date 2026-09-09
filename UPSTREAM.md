@@ -14,3 +14,5 @@ The modules below were copied from [vite-plugin-herdr](https://github.com/scacco
 | `src/bridge.ts` | `src/server.ts` |
 | `src/__tests__/helpers/fake-herdr.ts` | `src/__tests__/helpers/fake-herdr.ts` |
 | `src/__tests__/*.spec.ts` | the matching specs (`validate.spec.ts` was `http.spec.ts`, `bridge.spec.ts` was `server.spec.ts`) |
+
+The copies were then adapted for the extension in `merge: adapt the copied core for the extension`; see that merge for the diff against upstream.

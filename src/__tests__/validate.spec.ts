@@ -1,8 +1,6 @@
-import { Readable } from 'node:stream'
-import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 import { describe, it, expect } from 'vitest'
-import { HttpError, isSameOrigin, readJson, sendJson, validatePrompt } from '../validate.ts'
-import type { ElementInfo, PromptRequest, ScreenshotRequest } from '../types.ts'
+import { validatePrompt, validateSpawn } from '../validate.ts'
+import type { ElementInfo, PromptRequest } from '../types.ts'
 
 function fixtureElement(overrides?: Partial<ElementInfo>): ElementInfo {
   return {
@@ -25,76 +23,6 @@ function fixtureBody(overrides?: Partial<PromptRequest>): PromptRequest {
     ...overrides,
   }
 }
-
-describe('isSameOrigin', () => {
-  it('is true when sec-fetch-site is same-origin', () => {
-    expect(isSameOrigin({ 'sec-fetch-site': 'same-origin' })).toBe(true)
-  })
-
-  it('is true when origin host matches headers.host including port', () => {
-    const headers: IncomingHttpHeaders = { origin: 'http://localhost:5173', host: 'localhost:5173' }
-    expect(isSameOrigin(headers)).toBe(true)
-  })
-
-  it('is false when origin host does not match', () => {
-    const headers: IncomingHttpHeaders = { origin: 'http://evil.example', host: 'localhost:5173' }
-    expect(isSameOrigin(headers)).toBe(false)
-  })
-
-  it('is false when origin is the literal "null"', () => {
-    const headers: IncomingHttpHeaders = { origin: 'null', host: 'localhost:5173' }
-    expect(isSameOrigin(headers)).toBe(false)
-  })
-
-  it('is false when origin and sec-fetch-site are both missing', () => {
-    const headers: IncomingHttpHeaders = { host: 'localhost:5173' }
-    expect(isSameOrigin(headers)).toBe(false)
-  })
-})
-
-function fakeIncomingMessage(chunks: string[], headers: IncomingHttpHeaders): IncomingMessage {
-  const stream = Readable.from(chunks.map((c) => Buffer.from(c))) as unknown as IncomingMessage
-  stream.headers = headers
-  return stream
-}
-
-describe('readJson', () => {
-  it('parses a valid JSON body', async () => {
-    const req = fakeIncomingMessage(['{"a":1}'], { 'content-type': 'application/json' })
-    await expect(readJson(req, 1000)).resolves.toEqual({ a: 1 })
-  })
-
-  it('rejects non-json content-type with 415', async () => {
-    const req = fakeIncomingMessage(['{"a":1}'], { 'content-type': 'text/plain' })
-    await expect(readJson(req, 1000)).rejects.toMatchObject({ status: 415 })
-  })
-
-  it('rejects an oversized body with 413', async () => {
-    const req = fakeIncomingMessage(['{"a":"' + 'x'.repeat(100) + '"}'], { 'content-type': 'application/json' })
-    await expect(readJson(req, 10)).rejects.toMatchObject({ status: 413 })
-  })
-
-  it('destroys the request stream on oversized body without resetting the socket directly', async () => {
-    // Regression guard: readJson must not call req.destroy() itself for the
-    // 413 case. On a real socket that would destroy it while unread bytes
-    // remain in the receive buffer, causing a TCP RST that also drops the
-    // 413 response. Throwing out of `for await` destroys the stream on its
-    // own (via the iterator's return()), which is what we assert here.
-    const req = fakeIncomingMessage(['{"a":"' + 'x'.repeat(100) + '"}'], { 'content-type': 'application/json' })
-    await expect(readJson(req, 10)).rejects.toMatchObject({ status: 413 })
-    expect(req.destroyed).toBe(true)
-  })
-
-  it('rejects invalid json with 400', async () => {
-    const req = fakeIncomingMessage(['not json'], { 'content-type': 'application/json' })
-    await expect(readJson(req, 1000)).rejects.toMatchObject({ status: 400 })
-  })
-
-  it('rejects an empty body with 400', async () => {
-    const req = fakeIncomingMessage([], { 'content-type': 'application/json' })
-    await expect(readJson(req, 1000)).rejects.toMatchObject({ status: 400 })
-  })
-})
 
 describe('validatePrompt', () => {
   it('accepts a valid fixture', () => {
@@ -175,79 +103,127 @@ describe('validatePrompt', () => {
     })
   })
 
-  describe('screenshot', () => {
-    function fixtureShot(overrides?: Partial<ScreenshotRequest>): ScreenshotRequest {
-      return {
-        rect: { x: 100, y: 200, w: 320, h: 40 },
-        screenX: 0,
-        screenY: 0,
-        chromeLeft: 0,
-        chromeTop: 80,
-        dpr: 2,
-        ...overrides,
-      }
-    }
-
-    it('accepts a valid screenshot object', () => {
-      const body = fixtureBody({ screenshot: fixtureShot() })
+  describe('screenshotPng', () => {
+    it('accepts a valid base64 string', () => {
+      const body = fixtureBody({ screenshotPng: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' })
       expect(validatePrompt(body)).toEqual(body)
     })
 
-    it('omits screenshot from the result when not provided', () => {
+    it('omits screenshotPng from the result when not provided', () => {
       const result = validatePrompt(fixtureBody())
       expect(result).not.toBeNull()
-      expect(result?.screenshot).toBeUndefined()
+      expect(result?.screenshotPng).toBeUndefined()
     })
 
-    it('rejects a non-finite top-level field', () => {
-      expect(validatePrompt(fixtureBody({ screenshot: fixtureShot({ dpr: NaN }) }))).toBeNull()
-      expect(validatePrompt(fixtureBody({ screenshot: fixtureShot({ screenX: 'x' as unknown as number }) }))).toBeNull()
+    it('rejects a non-string screenshotPng', () => {
+      expect(validatePrompt(fixtureBody({ screenshotPng: 123 as unknown as string }))).toBeNull()
     })
 
-    it('rejects a screenshot with an invalid rect', () => {
-      expect(validatePrompt(fixtureBody({ screenshot: fixtureShot({ rect: { x: NaN, y: 0, w: 10, h: 10 } }) }))).toBeNull()
-      expect(validatePrompt(fixtureBody({ screenshot: fixtureShot({ rect: 'nope' as unknown as ScreenshotRequest['rect'] }) }))).toBeNull()
+    it('rejects screenshotPng with invalid base64 characters', () => {
+      expect(validatePrompt(fixtureBody({ screenshotPng: 'invalid@#$' }))).toBeNull()
     })
 
-    it('rejects a non-object screenshot', () => {
-      expect(validatePrompt(fixtureBody({ screenshot: 'nope' as unknown as ScreenshotRequest }))).toBeNull()
+    it('rejects screenshotPng longer than 8_000_000 characters', () => {
+      const tooLong = 'a'.repeat(8_000_001)
+      expect(validatePrompt(fixtureBody({ screenshotPng: tooLong }))).toBeNull()
+    })
+
+    it('accepts a maximum-length valid base64 string', () => {
+      const maxLength = 'A'.repeat(8_000_000)
+      expect(validatePrompt(fixtureBody({ screenshotPng: maxLength }))).not.toBeNull()
+    })
+
+    it('accepts valid base64 padding variations', () => {
+      expect(validatePrompt(fixtureBody({ screenshotPng: 'YQ==' }))).not.toBeNull()
+      expect(validatePrompt(fixtureBody({ screenshotPng: 'YWI=' }))).not.toBeNull()
+      expect(validatePrompt(fixtureBody({ screenshotPng: 'YWJj' }))).not.toBeNull()
     })
   })
 })
 
-describe('sendJson', () => {
-  it('sets status, headers and JSON body', () => {
-    const headers: Record<string, string> = {}
-    let statusCode = 0
-    let ended = ''
-    const res = {
-      setHeader(name: string, value: string) {
-        headers[name] = value
-      },
-      end(body: string) {
-        ended = body
-      },
-      get statusCode() {
-        return statusCode
-      },
-      set statusCode(v: number) {
-        statusCode = v
-      },
-    } as unknown as ServerResponse
-
-    sendJson(res, 200, { ok: true })
-
-    expect(statusCode).toBe(200)
-    expect(headers['content-type']).toBe('application/json; charset=utf-8')
-    expect(headers['cache-control']).toBe('no-store')
-    expect(ended).toBe(JSON.stringify({ ok: true }))
+describe('validateSpawn', () => {
+  it('accepts mode "here"', () => {
+    const result = validateSpawn({ mode: 'here' })
+    expect(result).toEqual({ mode: 'here' })
   })
-})
 
-describe('HttpError', () => {
-  it('carries status and message', () => {
-    const err = new HttpError(413, 'too big')
-    expect(err.status).toBe(413)
-    expect(err.message).toBe('too big')
+  it('accepts mode "worktree"', () => {
+    const result = validateSpawn({ mode: 'worktree' })
+    expect(result).toEqual({ mode: 'worktree' })
+  })
+
+  it('rejects invalid mode', () => {
+    expect(validateSpawn({ mode: 'invalid' })).toBeNull()
+    expect(validateSpawn({ mode: 'HERE' })).toBeNull()
+  })
+
+  it('rejects when mode is missing', () => {
+    expect(validateSpawn({})).toBeNull()
+  })
+
+  it('accepts optional name matching pattern', () => {
+    const result = validateSpawn({ mode: 'here', name: 'my-agent' })
+    expect(result).toEqual({ mode: 'here', name: 'my-agent' })
+  })
+
+  it('rejects name with uppercase letters', () => {
+    expect(validateSpawn({ mode: 'here', name: 'MyAgent' })).toBeNull()
+  })
+
+  it('rejects name starting with uppercase', () => {
+    expect(validateSpawn({ mode: 'here', name: 'A-agent' })).toBeNull()
+  })
+
+  it('rejects name with invalid characters', () => {
+    expect(validateSpawn({ mode: 'here', name: 'my agent' })).toBeNull()
+    expect(validateSpawn({ mode: 'here', name: 'my.agent' })).toBeNull()
+  })
+
+  it('accepts name with hyphens, underscores, and digits', () => {
+    const result = validateSpawn({ mode: 'here', name: 'a1_b-c' })
+    expect(result?.name).toBe('a1_b-c')
+  })
+
+  it('rejects name over 32 characters', () => {
+    expect(validateSpawn({ mode: 'here', name: 'a'.repeat(33) })).toBeNull()
+  })
+
+  it('accepts name of exactly 32 characters', () => {
+    const result = validateSpawn({ mode: 'here', name: 'a'.repeat(32) })
+    expect(result?.name).toBe('a'.repeat(32))
+  })
+
+  it('accepts optional branch', () => {
+    const result = validateSpawn({ mode: 'worktree', branch: 'feature/my-branch' })
+    expect(result).toEqual({ mode: 'worktree', branch: 'feature/my-branch' })
+  })
+
+  it('rejects branch with whitespace', () => {
+    expect(validateSpawn({ mode: 'worktree', branch: 'feature branch' })).toBeNull()
+    expect(validateSpawn({ mode: 'worktree', branch: 'feature\nbranch' })).toBeNull()
+  })
+
+  it('rejects empty branch', () => {
+    expect(validateSpawn({ mode: 'worktree', branch: '' })).toBeNull()
+  })
+
+  it('rejects branch over 100 characters', () => {
+    expect(validateSpawn({ mode: 'worktree', branch: 'a'.repeat(101) })).toBeNull()
+  })
+
+  it('accepts branch of exactly 100 characters', () => {
+    const result = validateSpawn({ mode: 'worktree', branch: 'a'.repeat(100) })
+    expect(result?.branch).toBe('a'.repeat(100))
+  })
+
+  it('accepts both name and branch', () => {
+    const result = validateSpawn({ mode: 'here', name: 'my-agent', branch: 'feature/foo' })
+    expect(result).toEqual({ mode: 'here', name: 'my-agent', branch: 'feature/foo' })
+  })
+
+  it('rejects non-object body', () => {
+    expect(validateSpawn('nope')).toBeNull()
+    expect(validateSpawn(null)).toBeNull()
+    expect(validateSpawn(123)).toBeNull()
   })
 })

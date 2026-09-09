@@ -1,68 +1,4 @@
-import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
-import type { ElementInfo, PromptRequest, ScreenshotRequest } from './types.ts'
-
-/** Error raised by HTTP request handling, carrying the status code to send */
-export class HttpError extends Error {
-  readonly status: number
-
-  constructor(status: number, message: string) {
-    super(message)
-    this.name = 'HttpError'
-    this.status = status
-  }
-}
-
-/**
- * True when the request came from the same origin as the dev server:
- * Sec-Fetch-Site: same-origin, or an Origin header whose host matches Host
- */
-export function isSameOrigin(headers: IncomingHttpHeaders): boolean {
-  if (headers['sec-fetch-site'] === 'same-origin') return true
-
-  const origin = headers.origin
-  if (typeof origin !== 'string') return false
-
-  try {
-    return new URL(origin).host === headers.host
-  } catch {
-    return false
-  }
-}
-
-/** Reads and parses a JSON request body, enforcing content-type and a byte cap */
-export async function readJson(req: IncomingMessage, maxBytes: number): Promise<unknown> {
-  const contentType = req.headers['content-type']
-  if (typeof contentType !== 'string' || !contentType.startsWith('application/json')) {
-    throw new HttpError(415, 'unsupported media type')
-  }
-
-  let body = ''
-  let bytes = 0
-  for await (const chunk of req) {
-    const buf: Buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-    bytes += buf.length
-    if (bytes > maxBytes) {
-      // Throwing out of a `for await` loop calls the async iterator's
-      // return(), which destroys the request stream on its own (detaching
-      // the socket first). An explicit req.destroy() here would instead
-      // destroy the shared socket directly while unread bytes remain in its
-      // receive buffer, which makes the OS send a TCP RST and silently
-      // drops the 413 response we are about to write.
-      throw new HttpError(413, 'payload too large')
-    }
-    body += buf.toString('utf8')
-  }
-
-  if (body.length === 0) {
-    throw new HttpError(400, 'empty body')
-  }
-
-  try {
-    return JSON.parse(body)
-  } catch {
-    throw new HttpError(400, 'invalid json')
-  }
-}
+import type { ElementInfo, PromptRequest, SpawnRequest } from './types.ts'
 
 function isPlainObject(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x)
@@ -113,36 +49,6 @@ export function validateElement(x: unknown): ElementInfo | null {
   }
 }
 
-/** Validates an untrusted value against the ScreenshotRequest shape, returning null when it does not match */
-function validateScreenshot(x: unknown): ScreenshotRequest | null {
-  if (!isPlainObject(x)) return null
-
-  const { rect, screenX, screenY, chromeLeft, chromeTop, dpr } = x
-
-  if (
-    !isPlainObject(rect) ||
-    !isFiniteNumber(rect.x) ||
-    !isFiniteNumber(rect.y) ||
-    !isFiniteNumber(rect.w) ||
-    !isFiniteNumber(rect.h)
-  ) {
-    return null
-  }
-
-  if (!isFiniteNumber(screenX) || !isFiniteNumber(screenY) || !isFiniteNumber(chromeLeft) || !isFiniteNumber(chromeTop) || !isFiniteNumber(dpr)) {
-    return null
-  }
-
-  return {
-    rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
-    screenX,
-    screenY,
-    chromeLeft,
-    chromeTop,
-    dpr,
-  }
-}
-
 /**
  * Validates an untrusted request body against the PromptRequest shape,
  * returning null (never throwing) when it does not match
@@ -150,7 +56,7 @@ function validateScreenshot(x: unknown): ScreenshotRequest | null {
 export function validatePrompt(body: unknown): PromptRequest | null {
   if (!isPlainObject(body)) return null
 
-  const { target, prompt, element, extras, screenshot } = body
+  const { target, prompt, element, extras, screenshotPng } = body
   if (typeof target !== 'string' || target.length === 0) return null
   if (typeof prompt !== 'string' || prompt.length > 20000) return null
 
@@ -171,19 +77,40 @@ export function validatePrompt(body: unknown): PromptRequest | null {
     result.extras = validatedExtras
   }
 
-  if (screenshot !== undefined) {
-    const validatedScreenshot = validateScreenshot(screenshot)
-    if (validatedScreenshot === null) return null
-    result.screenshot = validatedScreenshot
+  if (screenshotPng !== undefined) {
+    if (typeof screenshotPng !== 'string') return null
+    if (screenshotPng.length > 8_000_000) return null
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(screenshotPng)) return null
+    result.screenshotPng = screenshotPng
   }
 
   return result
 }
 
-/** Writes a JSON response with the standard status, content-type and cache headers */
-export function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.statusCode = status
-  res.setHeader('content-type', 'application/json; charset=utf-8')
-  res.setHeader('cache-control', 'no-store')
-  res.end(JSON.stringify(body))
+/**
+ * Validates an untrusted request body against the SpawnRequest shape,
+ * returning null (never throwing) when it does not match
+ */
+export function validateSpawn(body: unknown): SpawnRequest | null {
+  const record = isPlainObject(body) ? body : null
+  if (!record) return null
+
+  const mode = record.mode
+  if (mode !== 'here' && mode !== 'worktree') return null
+
+  const spawn: SpawnRequest = { mode }
+
+  if (record.name !== undefined) {
+    if (typeof record.name !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(record.name)) return null
+    spawn.name = record.name
+  }
+
+  if (record.branch !== undefined) {
+    if (typeof record.branch !== 'string' || record.branch.length === 0 || record.branch.length > 100 || /\s/.test(record.branch)) {
+      return null
+    }
+    spawn.branch = record.branch
+  }
+
+  return spawn
 }

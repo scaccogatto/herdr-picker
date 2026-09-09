@@ -12,7 +12,6 @@ import {
   spawnAgent,
   toAgentRow,
   toWorkspaceRow,
-  validateSpawn,
   writeAttachment,
 } from '../bridge.ts'
 import { startFakeHerdr } from './helpers/fake-herdr.ts'
@@ -161,11 +160,11 @@ describe('getState', () => {
       paneId: 'w33:p1',
       workspaces: [{ workspace_id: 'w33', label: 'dotfiles', number: 1, focused: false }],
       agents: [toAgentRow(sampleAgent)],
-      screenshot: 'off',
+      screenshot: 'available',
     })
   })
 
-  it('reports the screenshot availability passed in', async () => {
+  it('always reports screenshot available', async () => {
     fake = await startFakeHerdr({
       'session.snapshot': () => ({
         type: 'session_snapshot',
@@ -173,7 +172,7 @@ describe('getState', () => {
       }),
     })
 
-    const state = await getState(fake.socketPath, {}, 'available')
+    const state = await getState(fake.socketPath, {})
     expect(state).toMatchObject({ herdr: true, screenshot: 'available' })
   })
 
@@ -223,7 +222,7 @@ describe('postPrompt', () => {
 
     const result = await postPrompt(
       { target: 'w1:p1', prompt: 'make it red', element },
-      { socketPath: fake.socketPath, inlineMaxChars: 100000, roots: ['/repo'], attachmentDir, screenshotCommand: 'screencapture', screenshotEnabled: false },
+      { socketPath: fake.socketPath, inlineMaxChars: 100000, roots: ['/repo'], attachmentDir },
     )
 
     expect(result).toEqual({ ok: true, target: 'w1:p1', title: 'my agent', pane_id: null, screenshot: null })
@@ -249,7 +248,7 @@ describe('postPrompt', () => {
 
     const result = await postPrompt(
       { target: 'agent-name', prompt: 'make it red', element },
-      { socketPath: fake.socketPath, inlineMaxChars: 100000, roots: ['/repo'], attachmentDir, screenshotCommand: 'screencapture', screenshotEnabled: false },
+      { socketPath: fake.socketPath, inlineMaxChars: 100000, roots: ['/repo'], attachmentDir },
     )
 
     expect(result).toEqual({ ok: true, target: 'agent-name', title: 'my agent', pane_id: 'w1:p9', screenshot: null })
@@ -263,7 +262,7 @@ describe('postPrompt', () => {
 
     const result = await postPrompt(
       { target: 'w1:p1', prompt: 'make it red', element },
-      { socketPath: fake.socketPath, inlineMaxChars: 5, roots: ['/repo'], attachmentDir, screenshotCommand: 'screencapture', screenshotEnabled: false },
+      { socketPath: fake.socketPath, inlineMaxChars: 5, roots: ['/repo'], attachmentDir },
     )
 
     expect(result.ok).toBe(true)
@@ -297,7 +296,7 @@ describe('postPrompt', () => {
 
       const result = await postPrompt(
         { target: 'w1:p1', prompt: 'make it red', element, extras: [extra] },
-        { socketPath: fake.socketPath, inlineMaxChars: 100000, roots: ['/repo'], attachmentDir, screenshotCommand: 'screencapture', screenshotEnabled: false },
+        { socketPath: fake.socketPath, inlineMaxChars: 100000, roots: ['/repo'], attachmentDir },
       )
 
       expect(result.ok).toBe(true)
@@ -320,7 +319,7 @@ describe('postPrompt', () => {
       // element alone renders well under 200 chars; adding the extra pushes it over
       const result = await postPrompt(
         { target: 'w1:p1', prompt: 'make it red', element, extras: [extra] },
-        { socketPath: fake.socketPath, inlineMaxChars: 200, roots: ['/repo'], attachmentDir, screenshotCommand: 'screencapture', screenshotEnabled: false },
+        { socketPath: fake.socketPath, inlineMaxChars: 200, roots: ['/repo'], attachmentDir },
       )
 
       expect(result.ok).toBe(true)
@@ -334,6 +333,32 @@ describe('postPrompt', () => {
       expect(written).toContain('## Element 2')
       expect(written).toContain('data-herdr-picked="2"')
     })
+  })
+
+  it('writes a PNG file from base64 screenshotPng and includes the path in the sent text', async () => {
+    fake = await startFakeHerdr({
+      'agent.prompt': () => ({ type: 'agent_prompted', agent: { terminal_title_stripped: 'my agent' } }),
+    })
+    attachmentDir = mkdtempSync(join(tmpdir(), 'vph-att-'))
+
+    // A tiny valid PNG in base64: 1x1 transparent pixel
+    const screenshotPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
+    const result = await postPrompt(
+      { target: 'w1:p1', prompt: 'test', element, screenshotPng },
+      { socketPath: fake.socketPath, inlineMaxChars: 100000, roots: ['/repo'], attachmentDir },
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.screenshot).toBeTruthy()
+    expect(result.screenshot?.endsWith('.png')).toBe(true)
+
+    const text = fake.received[0]?.params.text as string
+    expect(text).toContain(`Screenshot: ${result.screenshot} (real pixels, the picked element is outlined, 40px margin)`)
+
+    // Verify the file was written
+    const files = await readdir(attachmentDir)
+    expect(files.some((f) => f.endsWith('.png'))).toBe(true)
   })
 })
 
@@ -366,40 +391,6 @@ describe('cleanupAttachments', () => {
 
   it('ignores a missing directory', async () => {
     await expect(cleanupAttachments('/nonexistent/dir/for/sure')).resolves.toBeUndefined()
-  })
-})
-
-describe('validateSpawn', () => {
-  it('accepts mode here with no name or branch', () => {
-    expect(validateSpawn({ mode: 'here' })).toEqual({ mode: 'here' })
-  })
-
-  it('accepts mode worktree with a valid name and branch', () => {
-    expect(validateSpawn({ mode: 'worktree', name: 'pick-ab12', branch: 'feature/x' })).toEqual({
-      mode: 'worktree',
-      name: 'pick-ab12',
-      branch: 'feature/x',
-    })
-  })
-
-  it('rejects a missing or invalid mode', () => {
-    expect(validateSpawn({})).toBeNull()
-    expect(validateSpawn({ mode: 'elsewhere' })).toBeNull()
-    expect(validateSpawn(null)).toBeNull()
-    expect(validateSpawn('here')).toBeNull()
-  })
-
-  it('rejects a name that does not match the pattern', () => {
-    expect(validateSpawn({ mode: 'here', name: 'Pick-1' })).toBeNull()
-    expect(validateSpawn({ mode: 'here', name: '1pick' })).toBeNull()
-    expect(validateSpawn({ mode: 'here', name: 'a'.repeat(33) })).toBeNull()
-    expect(validateSpawn({ mode: 'here', name: '' })).toBeNull()
-  })
-
-  it('rejects a branch with whitespace, empty, or over 100 chars', () => {
-    expect(validateSpawn({ mode: 'worktree', branch: 'has space' })).toBeNull()
-    expect(validateSpawn({ mode: 'worktree', branch: '' })).toBeNull()
-    expect(validateSpawn({ mode: 'worktree', branch: 'a'.repeat(101) })).toBeNull()
   })
 })
 
