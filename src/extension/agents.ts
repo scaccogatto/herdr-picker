@@ -50,9 +50,8 @@ export function selectableIds(groups: AgentGroup[]): string[] {
   return groups.flatMap((g) => g.agents.filter((a) => a.agent_status !== 'blocked').map((a) => a.pane_id))
 }
 
-/// Label of the workspace the dev server's own pane sits in - not necessarily herdr's currently
-/// focused workspace (see WorkspaceRow.focused), so "+ agent here" (which splits a pane next to
-/// the dev server's own, wherever that is) names this one specifically. Null when workspaceId is
+/// Label of the focused workspace reported by the host - so "+ agent here" (which splits a pane
+/// next to its focused pane) names this workspace specifically. Null when workspaceId is
 /// unset, no workspace matches it, or the match has no label - callers show a generic fallback
 /// rather than falling back to the raw workspace id.
 export function devWorkspaceLabel(state: LiveState): string | null {

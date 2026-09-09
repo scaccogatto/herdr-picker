@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { HerdrError, httpStatus, parseLine, request, subscribe } from '../herdr.ts'
+import { HerdrError, httpStatus, parseLine, request } from '../herdr.ts'
 import { startFakeHerdr } from './helpers/fake-herdr.ts'
 import type { FakeHerdr } from './helpers/fake-herdr.ts'
 
@@ -85,48 +85,6 @@ describe('request', () => {
     await expect(request(fake.socketPath, 'agent.prompt', {}, 200)).rejects.toMatchObject({
       code: 'timeout',
     })
-  })
-})
-
-describe('subscribe', () => {
-  let fake: FakeHerdr | undefined
-
-  afterEach(async () => {
-    await fake?.close()
-    fake = undefined
-  })
-
-  it('delivers pushed events after the initial subscription response', async () => {
-    fake = await startFakeHerdr({})
-
-    const events: { event: string; data: Record<string, unknown> }[] = []
-    const handle = subscribe(fake.socketPath, [{ type: 'pane.agent_status_changed', pane_id: 'w3F:p1' }], (event) => {
-      events.push(event)
-    })
-
-    await new Promise((r) => setTimeout(r, 100))
-    fake.pushEvent({ event: 'pane.agent_status_changed', data: { pane_id: 'w3F:p1', agent_status: 'idle' } })
-    fake.pushEvent({ event: 'pane.agent_status_changed', data: { pane_id: 'w3F:p1', agent_status: 'working' } })
-    await new Promise((r) => setTimeout(r, 100))
-
-    expect(events).toEqual([
-      { event: 'pane.agent_status_changed', data: { pane_id: 'w3F:p1', agent_status: 'idle' } },
-      { event: 'pane.agent_status_changed', data: { pane_id: 'w3F:p1', agent_status: 'working' } },
-    ])
-
-    handle.close()
-    handle.close() // does not throw
-  })
-
-  it('reports connection errors via onError', async () => {
-    const errors: HerdrError[] = []
-    const handle = subscribe('/nonexistent/dir/herdr.sock', [], () => {}, (err) => errors.push(err))
-
-    await new Promise((r) => setTimeout(r, 100))
-    expect(errors).toHaveLength(1)
-    expect(errors[0]?.code).toBe('no_socket')
-
-    handle.close()
   })
 })
 

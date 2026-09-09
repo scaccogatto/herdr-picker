@@ -62,16 +62,6 @@ export type StateResponse =
     }
   | { herdr: false; reason: string; message: string }
 
-/** Screen-space capture parameters for an opt-in real-pixel screenshot of the picked element */
-export interface ScreenshotRequest {
-  rect: Rect
-  screenX: number
-  screenY: number
-  chromeLeft: number
-  chromeTop: number
-  dpr: number
-}
-
 /** Request body for POST /__herdr/prompt */
 export interface PromptRequest {
   target: string
@@ -79,8 +69,8 @@ export interface PromptRequest {
   element: ElementInfo
   /** Up to 4 additional picked elements; the first selected element stays in `element` */
   extras?: ElementInfo[]
-  /** Present when the sender opted in to attaching a real-pixel screenshot */
-  screenshot?: ScreenshotRequest
+  /** Base64 PNG of the picked element's real pixels, captured by the extension, present when the sender opted in */
+  screenshotPng?: string
 }
 
 /** Successful response from POST /__herdr/prompt */
@@ -112,12 +102,4 @@ export interface SpawnResponse {
 export interface ErrorResponse {
   error: string
   message: string
-}
-
-/** Options passed to the browser client */
-export interface ClientOptions {
-  hotkey: string
-  endpoint: string
-  maxDepth: number
-  maxLines: number
 }

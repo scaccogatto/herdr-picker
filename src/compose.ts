@@ -81,7 +81,7 @@ export function composePrompt(
 
   const roundedVw = Math.round(el.viewport.w)
   const roundedVh = Math.round(el.viewport.h)
-  lines.push(`[vite-plugin-herdr] ${el.url}  viewport ${roundedVw}x${roundedVh}`)
+  lines.push(`[herdr-picker] ${el.url}  viewport ${roundedVw}x${roundedVh}`)
 
   const hint = el.hint && el.hint.trim() ? el.hint : 'none, find by selector'
   lines.push(`Focus: ${hint}`)

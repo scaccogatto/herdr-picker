@@ -1,43 +1,24 @@
-import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
-import { promisify } from 'node:util'
-import type { ViteDevServer } from 'vite'
+import { isAbsolute, join, resolve } from 'node:path'
 import { composePrompt, renderAttachment } from './compose.ts'
-import { HerdrError, httpStatus, request, resolveSocketPath, subscribe } from './herdr.ts'
-import { HttpError, isSameOrigin, readJson, sendJson, validatePrompt } from './validate.ts'
+import { HerdrError, request } from './herdr.ts'
 import type {
   AgentRow,
   AgentStatus,
   ElementInfo,
   PromptRequest,
   PromptResponse,
-  ScreenshotRequest,
   SpawnRequest,
   SpawnResponse,
   StateResponse,
   WorkspaceRow,
 } from './types.ts'
 
-const execFileAsync = promisify(execFile)
-
-/** Options for mounting the herdr routes on a Vite dev server */
-export interface ServerOptions {
-  endpoint: string
-  socketPath: string | undefined
-  inlineMaxChars: number
-  attachmentDir?: string
-  /** Offers the screenshot checkbox; 'auto' (default) means macOS only */
-  screenshot?: boolean | 'auto'
-  /** Command used to capture the screenshot; defaults to 'screencapture' */
-  screenshotCommand?: string
-}
-
 /** Default directory for oversized element snippet attachments */
-export const ATTACHMENT_DIR = join(tmpdir(), 'vite-plugin-herdr')
+export const ATTACHMENT_DIR = join(tmpdir(), 'herdr-picker')
 
 function str(x: unknown): string | null {
   return typeof x === 'string' ? x : null
@@ -111,56 +92,8 @@ export function absolutizeHint(hint: string | null, roots: string[]): string | n
   return `${resolve(root, path)}:${line}${colPart}${rest}`
 }
 
-/** Resolves the plugin's `screenshot` option to whether the checkbox should be offered */
-export function screenshotAvailability(option: boolean | 'auto' | undefined, platform: string = process.platform): 'available' | 'unsupported' | 'off' {
-  if (option === false) return 'off'
-  if (option === true) return 'available'
-  return platform === 'darwin' ? 'available' : 'unsupported'
-}
-
-function clamp(n: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, n))
-}
-
-/** Crops the capture region around the picked element: real screen coordinates plus a margin */
-export function screenRegion(shot: ScreenshotRequest, margin = 40): { x: number; y: number; w: number; h: number } {
-  const x = Math.round(shot.screenX + shot.chromeLeft + shot.rect.x - margin)
-  const y = Math.round(shot.screenY + shot.chromeTop + shot.rect.y - margin)
-  const w = Math.round(shot.rect.w + 2 * margin)
-  const h = Math.round(shot.rect.h + 2 * margin)
-
-  return { x: Math.max(0, x), y: Math.max(0, y), w: clamp(w, 16, 4000), h: clamp(h, 16, 4000) }
-}
-
-/**
- * Captures a real-pixel screenshot of a screen region to file, throwing
- * HerdrError('screenshot_failed') when the command fails or produces no
- * (or an empty) file
- */
-export async function captureScreenshot(region: { x: number; y: number; w: number; h: number }, file: string, command: string): Promise<void> {
-  try {
-    await execFileAsync(command, ['-x', '-R', `${region.x},${region.y},${region.w},${region.h}`, file], { timeout: 8000 })
-  } catch (err) {
-    throw new HerdrError('screenshot_failed', err instanceof Error ? err.message : String(err))
-  }
-
-  let info: Awaited<ReturnType<typeof stat>>
-  try {
-    info = await stat(file)
-  } catch {
-    throw new HerdrError('screenshot_failed', 'capture produced no file')
-  }
-  if (info.size === 0) {
-    throw new HerdrError('screenshot_failed', 'capture produced an empty file')
-  }
-}
-
 /** Fetches the herdr session snapshot and maps it to the /state response shape */
-export async function getState(
-  socketPath: string,
-  env: NodeJS.ProcessEnv = process.env,
-  screenshot: 'available' | 'unsupported' | 'off' = 'off',
-): Promise<StateResponse> {
+export async function getState(socketPath: string, env: NodeJS.ProcessEnv = process.env): Promise<StateResponse> {
   try {
     const top = obj(await request(socketPath, 'session.snapshot', {}))
     const snapshot = top ? obj(top.snapshot) : null
@@ -181,7 +114,7 @@ export async function getState(
       paneId: env.HERDR_PANE_ID ?? null,
       workspaces: workspaces.map((w) => toWorkspaceRow(obj(w) ?? {})),
       agents: agents.map((a) => toAgentRow(obj(a) ?? {})),
-      screenshot,
+      screenshot: 'available',
     }
   } catch (err) {
     if (err instanceof HerdrError) {
@@ -232,8 +165,8 @@ export async function cleanupAttachments(dir: string, maxAgeMs = 86400000): Prom
 /**
  * Composes the prompt for a validated request and sends it to herdr,
  * writing an attachment file when the rendered snippet is too large to inline
- * and, when a screenshot was requested and enabled, capturing it first; a
- * capture failure is logged and the prompt still goes out without it
+ * and, when a screenshot PNG was provided, writing it to disk first; a
+ * screenshot write failure is logged and the prompt still goes out without it
  */
 export async function postPrompt(
   body: PromptRequest,
@@ -242,22 +175,20 @@ export async function postPrompt(
     inlineMaxChars: number
     roots: string[]
     attachmentDir: string
-    screenshotCommand: string
-    screenshotEnabled: boolean
   },
 ): Promise<PromptResponse> {
   const el: ElementInfo = { ...body.element, hint: absolutizeHint(body.element.hint, opts.roots) }
   const extras: ElementInfo[] = (body.extras ?? []).map((extra) => ({ ...extra, hint: absolutizeHint(extra.hint, opts.roots) }))
 
   let screenshotPath: string | undefined
-  if (body.screenshot && opts.screenshotEnabled) {
+  if (body.screenshotPng !== undefined) {
     const file = join(opts.attachmentDir, `${Date.now()}-${randomBytes(3).toString('hex')}.png`)
     try {
       await mkdir(opts.attachmentDir, { recursive: true })
-      await captureScreenshot(screenRegion(body.screenshot), file, opts.screenshotCommand)
+      await writeFile(file, Buffer.from(body.screenshotPng, 'base64'))
       screenshotPath = file
     } catch (err) {
-      console.warn(`[vite-plugin-herdr] screenshot failed: ${err instanceof Error ? err.message : String(err)}`)
+      console.warn(`[herdr-picker] screenshot failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -280,39 +211,11 @@ export async function postPrompt(
   }
 }
 
-/**
- * Validates an untrusted request body against the SpawnRequest shape,
- * returning null (never throwing) when it does not match
- */
-export function validateSpawn(body: unknown): SpawnRequest | null {
-  const record = obj(body)
-  if (!record) return null
-
-  const mode = record.mode
-  if (mode !== 'here' && mode !== 'worktree') return null
-
-  const spawn: SpawnRequest = { mode }
-
-  if (record.name !== undefined) {
-    if (typeof record.name !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(record.name)) return null
-    spawn.name = record.name
-  }
-
-  if (record.branch !== undefined) {
-    if (typeof record.branch !== 'string' || record.branch.length === 0 || record.branch.length > 100 || /\s/.test(record.branch)) {
-      return null
-    }
-    spawn.branch = record.branch
-  }
-
-  return spawn
-}
-
 /** Default request timeout for agent.start: it waits for the agent to become ready */
 const AGENT_START_TIMEOUT_MS = 70000
 
 /**
- * Spawns a new agent: mode "here" splits the current herdr pane, mode
+ * Spawns a new agent: mode "here" splits the focused pane next to it, mode
  * "worktree" creates a new worktree pane, then starts a claude agent in it
  */
 export async function spawnAgent(
@@ -328,7 +231,7 @@ export async function spawnAgent(
   if (body.mode === 'here') {
     const currentPaneId = env.HERDR_PANE_ID
     if (!currentPaneId) {
-      throw new HerdrError('not_in_herdr', 'dev server is not running inside a herdr pane')
+      throw new HerdrError('not_in_herdr', 'no focused herdr pane to split next to')
     }
 
     const splitResult = obj(
@@ -372,175 +275,3 @@ export async function spawnAgent(
   return { ok: true, pane_id: paneId, name, workspace_id: workspaceId }
 }
 
-/** One forwarded pane.agent_status_changed event, as pushed to the client over the HMR websocket */
-export interface StatusEvent {
-  pane_id: string
-  agent_status: AgentStatus
-  title: string | null
-}
-
-const activeWatches = new Map<string, () => void>()
-
-/** Grace period for the case where the agent already finished before the watch subscribed */
-const SETTLED_ON_FIRST_EVENT_GRACE_MS = 5000
-
-/**
- * Subscribes to pane.agent_status_changed for one pane after a prompt,
- * forwarding every event through push, until the agent settles (a settled
- * status forwarded after an earlier "working" one), the turn had already
- * finished before the watch subscribed (a settled status is the very first
- * event and stays that way for a grace period), maxMs elapses, or the
- * subscription errors. A second watch for the same pane closes the first.
- * Returns a function that ends the watch early.
- */
-export function watchAgent(
-  push: (event: StatusEvent) => void,
-  socketPath: string,
-  paneId: string,
-  opts: { maxMs?: number; settled?: AgentStatus[] } = {},
-): () => void {
-  const maxMs = opts.maxMs ?? 30 * 60 * 1000
-  const settledStatuses = opts.settled ?? ['idle', 'done', 'blocked']
-  const startedAt = Date.now()
-
-  activeWatches.get(paneId)?.()
-
-  let closed = false
-  let firstStatus: AgentStatus | null = null
-  let sawWorking = false
-
-  function close(): void {
-    if (closed) return
-    closed = true
-    clearTimeout(maxTimer)
-    clearTimeout(graceTimer)
-    if (activeWatches.get(paneId) === close) activeWatches.delete(paneId)
-    sub.close()
-  }
-
-  // Covers the case where the settled first event arrives quickly (well
-  // within the grace period) and no further event ever follows: re-check
-  // once the grace period itself elapses.
-  function closeIfStillStaleSettled(): void {
-    if (firstStatus !== null && settledStatuses.includes(firstStatus) && !sawWorking) close()
-  }
-
-  const maxTimer = setTimeout(close, maxMs).unref()
-  const graceTimer = setTimeout(closeIfStillStaleSettled, SETTLED_ON_FIRST_EVENT_GRACE_MS).unref()
-
-  const sub = subscribe(
-    socketPath,
-    [{ type: 'pane.agent_status_changed', pane_id: paneId }],
-    (line) => {
-      if (closed) return
-      const data = obj(line.data)
-      if (!data || str(data.pane_id) !== paneId) return
-
-      const agentStatus = (str(data.agent_status) ?? 'unknown') as AgentStatus
-      const isFirst = firstStatus === null
-      if (isFirst) firstStatus = agentStatus
-      if (agentStatus === 'working') sawWorking = true
-
-      push({ pane_id: paneId, agent_status: agentStatus, title: str(data.title) })
-
-      if (!settledStatuses.includes(agentStatus)) return
-      if (sawWorking) {
-        close()
-        return
-      }
-      // Covers the case where the settled first event arrives after the
-      // grace period already elapsed (the timer above found nothing yet).
-      if (isFirst && Date.now() - startedAt >= SETTLED_ON_FIRST_EVENT_GRACE_MS) close()
-    },
-    () => close(),
-  )
-
-  activeWatches.set(paneId, close)
-  return close
-}
-
-/** Mounts the /state, /prompt and /spawn herdr routes on the Vite dev server middleware */
-export function mountRoutes(server: ViteDevServer, opts: ServerOptions): void {
-  const mount = server.config.base.replace(/\/$/, '') + opts.endpoint
-  const socketPath = resolveSocketPath(opts.socketPath)
-  const attachmentDir = opts.attachmentDir ?? ATTACHMENT_DIR
-  const root = server.config.root
-  const roots = [...new Set([root, process.cwd(), dirname(root)])]
-  const screenshotAvail = screenshotAvailability(opts.screenshot)
-  const screenshotCommand = opts.screenshotCommand ?? 'screencapture'
-
-  cleanupAttachments(attachmentDir).catch(() => {})
-
-  server.middlewares.use(mount, async (req, res, next) => {
-    if (!isSameOrigin(req.headers)) {
-      sendJson(res, 403, { error: 'forbidden', message: 'same-origin only' })
-      return
-    }
-
-    const path = (req.url ?? '/').split('?')[0] ?? '/'
-
-    try {
-      if (path === '/state') {
-        if (req.method !== 'GET') {
-          sendJson(res, 405, { error: 'method_not_allowed', message: `${req.method} not allowed` })
-          return
-        }
-        sendJson(res, 200, await getState(socketPath, undefined, screenshotAvail))
-        return
-      }
-
-      if (path === '/prompt') {
-        if (req.method !== 'POST') {
-          sendJson(res, 405, { error: 'method_not_allowed', message: `${req.method} not allowed` })
-          return
-        }
-        const promptReq = validatePrompt(await readJson(req, 262144))
-        if (!promptReq) {
-          sendJson(res, 400, { error: 'invalid_params', message: 'invalid prompt request' })
-          return
-        }
-        const result = await postPrompt(promptReq, {
-          socketPath,
-          inlineMaxChars: opts.inlineMaxChars,
-          roots,
-          attachmentDir,
-          screenshotCommand,
-          screenshotEnabled: screenshotAvail === 'available',
-        })
-        const paneId = result.pane_id ?? promptReq.target
-        watchAgent((event) => server.ws.send('herdr:status', event), socketPath, paneId)
-        sendJson(res, 200, result)
-        return
-      }
-
-      if (path === '/spawn') {
-        if (req.method !== 'POST') {
-          sendJson(res, 405, { error: 'method_not_allowed', message: `${req.method} not allowed` })
-          return
-        }
-        const spawnReq = validateSpawn(await readJson(req, 65536))
-        if (!spawnReq) {
-          sendJson(res, 400, { error: 'invalid_params', message: 'invalid spawn request' })
-          return
-        }
-        // A new agent belongs in the project directory the dev server was started
-        // from, not in the Vite root (which may be a sub-folder like demo/).
-        sendJson(res, 200, await spawnAgent(spawnReq, { socketPath, root: process.cwd() }))
-        return
-      }
-
-      next()
-    } catch (err) {
-      if (err instanceof HttpError) {
-        const errorValue = err.status === 413 ? 'payload_too_large' : err.status === 415 ? 'unsupported_media_type' : 'invalid_request'
-        sendJson(res, err.status, { error: errorValue, message: err.message })
-        return
-      }
-      if (err instanceof HerdrError) {
-        sendJson(res, httpStatus(err.code), { error: err.code, message: err.message })
-        return
-      }
-      sendJson(res, 500, { error: 'internal', message: err instanceof Error ? err.message : String(err) })
-    }
-  })
-}
