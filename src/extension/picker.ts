@@ -4,6 +4,8 @@ import type {
   ErrorResponse,
   PromptRequest,
   PromptResponse,
+  Rect,
+  SpawnRequest,
   SpawnResponse,
   StateResponse,
 } from '../types.ts'
@@ -25,9 +27,9 @@ import { devWorkspaceLabel, groupAgents, pickAgent, selectableIds } from './agen
 export interface Relay {
   state(): Promise<StateResponse>
   prompt(body: PromptRequest): Promise<RelayReply<PromptResponse>>
-  spawn(body: { mode: 'here' | 'worktree'; name?: string; branch?: string }): Promise<RelayReply<SpawnResponse>>
+  spawn(body: SpawnRequest): Promise<RelayReply<SpawnResponse>>
   /** Real pixels of the viewport rect (CSS px) plus a margin, as base64 PNG; rejects when capture is unavailable */
-  capture(rect: { x: number; y: number; w: number; h: number }): Promise<string>
+  capture(rect: Rect): Promise<string>
 }
 
 export interface RelayReply<T> { status: number; body: T | ErrorResponse }
@@ -767,7 +769,8 @@ export function mount(relay: Relay): void {
     inflightSettleTimer = setTimeout(() => clearInflight(), 3000)
   }
 
-  // Polling fallback when HMR is unavailable
+  // Polling is the only status path here: the host has no push channel, so the
+  // in-flight outline derives working -> settled from the state every 2 s
   function startInflightPoll(paneId: string): void {
     const startedAt = Date.now()
     let sawWorking = false
