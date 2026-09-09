@@ -7,3 +7,6 @@ playwright-report
 .claude/worktrees
 *.tgz
 key.pem
+
+# release zips
+*.zip

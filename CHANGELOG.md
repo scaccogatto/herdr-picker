@@ -4,6 +4,8 @@ All notable changes to this project are documented here. Conventional Commits; a
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-09
+
 ### Features
 
 - Chrome extension (Manifest V3) plus a native messaging host: pick a DOM element on any page and send it, with a prompt, to a coding agent running in herdr. Modules copied from vite-plugin-herdr at `f5ef5e1` (see `UPSTREAM.md`) and adapted; no dependency between the two projects.
