@@ -97,7 +97,7 @@ When the page carries locator attributes (`data-v-inspector`, `data-insp-path`, 
 
 ## Limits
 
-- **macOS and Linux only.** The installer knows Chrome's and Chromium's profile locations on those two; Windows is not supported.
+- **macOS and Linux only.** The installer knows where Chrome and Chromium look for native messaging hosts on those two; Windows is not supported.
 - **Named sessions:** Pass `--socket <path>` to `install-host` to support multiple herdr sessions at different socket paths.
 - **`activeTab` revoked on navigation.** Press `Ctrl+B` again on a new origin.
 - **No options page (yet).** Per-site preferences (screenshot enabled/disabled, last agent used) persist in `localStorage`.
