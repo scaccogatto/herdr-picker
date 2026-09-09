@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
-import { chmod } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -93,9 +92,7 @@ export async function installHost(opts: {
   const hostJsPath = join(opts.configDir, 'host.js')
   const hostShPath = join(opts.configDir, 'host.sh')
 
-  const hostSource = typeof opts.hostSource === 'string' ? opts.hostSource : new URL(opts.hostSource as string).pathname
-  const { readFile } = await import('node:fs/promises')
-  const hostContent = await readFile(hostSource)
+  const hostContent = await readFile(opts.hostSource)
   await writeFile(hostJsPath, hostContent)
 
   // Write wrapper script
@@ -139,30 +136,25 @@ export async function installHost(opts: {
 }
 
 /** Parses CLI arguments and runs the install flow */
-export async function main(argv: string[]): Promise<number> {
-  // Handle --help/-h/no-args
-  if (argv.length === 0 || argv.includes('--help') || argv.includes('-h')) {
-    console.log(`herdr-picker install-host [--socket <path>] [--extension-id <id>] [--browser-dir <dir>]
+const USAGE = `herdr-picker install-host [--socket <path>] [--extension-id <id>] [--browser-dir <dir>]
 
 Installs the native messaging host Chrome launches for the herdr picker extension:
   copies host.js to ~/.config/herdr-picker/ (XDG_CONFIG_HOME honoured), writes host.sh
   next to it, and registers it with every Chrome/Chromium profile found (or --browser-dir).
   --socket        bake HERDR_SOCKET_PATH into host.sh (named herdr sessions)
   --extension-id  override the id derived from the bundled extension manifest's key
-  --browser-dir   write the host manifest into this NativeMessagingHosts directory only`)
+  --browser-dir   write the host manifest into this NativeMessagingHosts directory only`
+
+export async function main(argv: string[]): Promise<number> {
+  // Handle --help/-h/no-args
+  if (argv.length === 0 || argv.includes('--help') || argv.includes('-h')) {
+    console.log(USAGE)
     return 0
   }
 
   const command = argv[0]
   if (command !== 'install-host') {
-    console.log(`herdr-picker install-host [--socket <path>] [--extension-id <id>] [--browser-dir <dir>]
-
-Installs the native messaging host Chrome launches for the herdr picker extension:
-  copies host.js to ~/.config/herdr-picker/ (XDG_CONFIG_HOME honoured), writes host.sh
-  next to it, and registers it with every Chrome/Chromium profile found (or --browser-dir).
-  --socket        bake HERDR_SOCKET_PATH into host.sh (named herdr sessions)
-  --extension-id  override the id derived from the bundled extension manifest's key
-  --browser-dir   write the host manifest into this NativeMessagingHosts directory only`)
+    console.log(USAGE)
     return 1
   }
 
@@ -194,7 +186,6 @@ Installs the native messaging host Chrome launches for the herdr picker extensio
       return 1
     }
     try {
-      const { readFileSync } = await import('node:fs')
       const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
       if (typeof manifest.key === 'string') {
         extensionId = extensionIdFromKey(manifest.key)

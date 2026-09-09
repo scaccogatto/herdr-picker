@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import { request, HerdrError, httpStatus } from './herdr.ts'
 import { getState, postPrompt, spawnAgent } from './bridge.ts'
 import { validatePrompt, validateSpawn } from './validate.ts'
@@ -116,18 +117,18 @@ export function createHandler(opts: {
     try {
       if (msg.method === 'state') {
         // ponytail: session.snapshot called twice (once here for focus, once inside getState); pass the snapshot through if this ever shows in herdr's logs
-        let snapshot_env = {}
+        let focusEnv = {}
 
         try {
           const snapshotResult = await request(opts.socketPath, 'session.snapshot', {})
           const focus = focusedEnv(snapshotResult)
-          snapshot_env = focus.env
+          focusEnv = focus.env
         } catch (err) {
           if (!(err instanceof HerdrError)) throw err
           // fall through: use empty env and getState will produce { herdr: false, ... }
         }
 
-        const response = await getState(opts.socketPath, snapshot_env)
+        const response = await getState(opts.socketPath, focusEnv)
         return { id: msg.id, status: 200, body: response }
       }
 
@@ -148,14 +149,14 @@ export function createHandler(opts: {
 
       if (msg.method === 'spawn') {
         let snapshotResult: unknown
-        let spawn_env = {}
-        let spawn_cwd = ''
+        let spawnEnv = {}
+        let spawnCwd = ''
 
         try {
           snapshotResult = await request(opts.socketPath, 'session.snapshot', {})
           const focus = focusedEnv(snapshotResult)
-          spawn_env = focus.env
-          spawn_cwd = focus.cwd ?? ''
+          spawnEnv = focus.env
+          spawnCwd = focus.cwd ?? ''
         } catch (err) {
           if (!(err instanceof HerdrError)) throw err
           // fall through: validate will catch the missing env
@@ -166,11 +167,10 @@ export function createHandler(opts: {
           return { id: msg.id, status: 400, body: { error: 'invalid_params', message: 'invalid spawn request' } }
         }
 
-        const { homedir } = await import('node:os')
         const response: SpawnResponse = await spawnAgent(body, {
           socketPath: opts.socketPath,
-          root: spawn_cwd || homedir(),
-          env: spawn_env,
+          root: spawnCwd || homedir(),
+          env: spawnEnv,
         })
         return { id: msg.id, status: 200, body: response }
       }
