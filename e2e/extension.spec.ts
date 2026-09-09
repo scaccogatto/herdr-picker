@@ -167,7 +167,7 @@ test('falls back to the clipboard notice when the native host is not installed',
 })
 
 test('content.js is a classic script', async () => {
-  const contentJs = readFileSync('/Users/gatto/Developer/scaccogatto/herdr-picker/dist/extension/content.js', 'utf8')
+  const contentJs = readFileSync(new URL('../dist/extension/content.js', import.meta.url), 'utf8')
 
   // Should not have import or export statements
   const hasModuleStatements = /^(import|export) /m.test(contentJs)

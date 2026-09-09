@@ -2,6 +2,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { BrowserContext, Page } from '@playwright/test'
 import { chromium, expect } from '@playwright/test'
 import { hostManifest, wrapperScript } from '../../src/cli.ts'
@@ -33,9 +34,10 @@ export async function launchExtension(opts: {
   installHost?: boolean
 }): Promise<Harness> {
   // Assert that the extension is built
-  const extensionDist = '/Users/gatto/Developer/scaccogatto/herdr-picker/dist/extension'
+  const dist = fileURLToPath(new URL('../../dist/', import.meta.url))
+  const extensionDist = join(dist, 'extension')
   const manifestPath = join(extensionDist, 'manifest.json')
-  const hostJsPath = '/Users/gatto/Developer/scaccogatto/herdr-picker/dist/host.js'
+  const hostJsPath = join(dist, 'host.js')
 
   if (!existsSync(manifestPath)) {
     throw new Error('run npm run build before the e2e')
