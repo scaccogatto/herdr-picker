@@ -93,7 +93,7 @@ Manual entries in `CHANGELOG.md` under `[Unreleased]` sections (Features, Bug Fi
 `npm publish`'s own `prepublishOnly` hook only covers typecheck, test, and build. Everything else needs to be run and checked by hand before tagging:
 - `npm run lint`
 - `npm run coverage` (a superset of `test`, with the coverage report)
-- `npm run e2e` (needs `npx playwright install --with-deps chromium` first, as `ci.yml` does)
+- `npm run e2e` (needs `npx playwright install --with-deps chromium` first, as `ci.yml` does); it also packs and installs the package and runs the bin link the way npx does (`e2e/package.spec.ts`), the check 0.1.0 shipped without
 - `npm run build` clean, with no uncommitted output
 - No uncommitted changes
 - `package.json` and `extension/manifest.json` versions match (a convention, not enforced by tooling)

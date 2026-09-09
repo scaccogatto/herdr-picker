@@ -4,6 +4,12 @@ All notable changes to this project are documented here. Conventional Commits; a
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-09
+
+### Bug Fixes
+
+- CLI: `dist/cli.js` now starts with `#!/usr/bin/env node`, so the bin npm links (`npx herdr-picker install-host`) runs; 0.1.0 shipped it without the shebang and the shell tried to run the bundle as a script. An end-to-end test now packs and installs the package and runs the bin.
+
 ## [0.1.0] - 2026-09-09
 
 ### Features

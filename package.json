@@ -1,16 +1,38 @@
 {
   "name": "herdr-picker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Pick a DOM element on any page in Chrome and send it, with a prompt, to a coding agent running in herdr.",
   "type": "module",
-  "author": { "name": "Marco Boffo", "email": "chat@marcoboffo.me" },
+  "author": {
+    "name": "Marco Boffo",
+    "email": "chat@marcoboffo.me"
+  },
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/scaccogatto/herdr-picker.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scaccogatto/herdr-picker.git"
+  },
   "homepage": "https://github.com/scaccogatto/herdr-picker#readme",
-  "bugs": { "url": "https://github.com/scaccogatto/herdr-picker/issues" },
-  "keywords": ["chrome-extension", "herdr", "claude-code", "coding-agent", "dom", "element-picker", "native-messaging", "devtools", "ai"],
-  "bin": { "herdr-picker": "dist/cli.js" },
-  "files": ["dist"],
+  "bugs": {
+    "url": "https://github.com/scaccogatto/herdr-picker/issues"
+  },
+  "keywords": [
+    "chrome-extension",
+    "herdr",
+    "claude-code",
+    "coding-agent",
+    "dom",
+    "element-picker",
+    "native-messaging",
+    "devtools",
+    "ai"
+  ],
+  "bin": {
+    "herdr-picker": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "vite build && vite build --mode extension",
     "typecheck": "tsc --noEmit",
@@ -21,7 +43,9 @@
     "e2e": "playwright test",
     "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",

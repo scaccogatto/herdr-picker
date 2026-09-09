@@ -7,3 +7,5 @@ Repository bootstrapped: configs adapted from vite-plugin-herdr, shared modules 
 Core modules adapted for the extension: relay-based picker (no HTTP/HMR), screenshotPng instead of ScreenshotRequest (base64 PNG captured by extension), no dev-server screencapture, trusted-event guards on UI, no in-page hotkey.
 
 Documentation landed: README.md (use, install, security), CHANGELOG.md (Keep a Changelog format), architecture.md (modules, contracts, message flow), security.md (boundaries, guards, edge cases), release.md (versioning, npm/Web Store steps). First release pending.
+
+0.1.0 published to npm by hand (trusted-publishing bootstrap), tag v0.1.0 pushed, the release workflow found it on the registry and skipped the publish. The published bin failed under npx: dist/cli.js had no shebang, so the shell ran the bundle as a script. 0.1.1 adds the shebang to src/cli.ts (the Vite build keeps it) and e2e/package.spec.ts, which packs and installs the package and runs the bin link the way npx does.
