@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "herdr picker",
+  "version": "0.1.0",
+  "description": "Pick an element on any page and send it, with a prompt, to a coding agent running in herdr.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxSBWOJmBmFBUVZRbrHR8l5bnBLv16+iBGG4s5wevtM/QC/O+Fzst1uKFT/vxKeFi/0tVXUfLOeXlZU1VuiJfRTnn9+AkPtXN8uXG20CC++GQgul5HA5nPm+Lgtqeo7PSTo3u6mzwbx/PtwIhRTiKpW996SiccvKjJ/BxUzHHOP4j1yPe72BhwmMTUIZ/vlppDAZx9mg/J/Fnvi8I/xmj96t7UAzPAMYuLqFQ6sEblIRuUU7FwJNnGu12fXLc1cM43ajTdswTtJViZdGI3u/ww9oUiroUbC3umAALggMUjbSqo2J2RMIXs5BKdbTrGu3gshf5G8tnylTvqW9axIp0nwIDAQAB",
+  "minimum_chrome_version": "117",
+  "permissions": ["activeTab", "scripting", "nativeMessaging"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "herdr picker: pick an element (Ctrl+B)",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "commands": {
+    "pick": {
+      "suggested_key": {
+        "default": "Ctrl+B",
+        "mac": "MacCtrl+B"
+      },
+      "description": "Pick an element to send to a herdr agent"
+    }
+  }
+}
