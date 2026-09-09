@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -174,13 +174,15 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   // Resolve paths and extension ID
-  const hostSource = fileURLToPath(new URL('./host.js', import.meta.url))
+  // Not `new URL('./host.js', import.meta.url)`: Vite treats that pattern as an asset reference and inlines the file
+  const here = dirname(fileURLToPath(import.meta.url))
+  const hostSource = join(here, 'host.js')
   const home = homedir()
   const nodePath = process.execPath
 
   // Try to get extension ID from manifest if not provided
   if (extensionId === undefined) {
-    const manifestPath = fileURLToPath(new URL('./extension/manifest.json', import.meta.url))
+    const manifestPath = join(here, 'extension', 'manifest.json')
     if (!existsSync(manifestPath)) {
       console.log(`cannot derive the extension id: ${manifestPath} not found; pass --extension-id`)
       return 1
@@ -233,6 +235,7 @@ export async function main(argv: string[]): Promise<number> {
 }
 
 // Run main only when executed directly
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// realpath: `npx herdr-picker` runs through a bin symlink, while import.meta.url is the resolved file
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main(process.argv.slice(2)).then((code) => process.exit(code))
 }
