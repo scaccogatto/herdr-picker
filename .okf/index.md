@@ -8,4 +8,6 @@ Pick a DOM element on any page open in Chrome and send it, with a prompt, to a c
 
 ## Concepts
 
-(none yet: architecture, security and release concepts land with the first release)
+- [architecture.md](./architecture.md): Extension, native host, and CLI module breakdown; relay-based picker; screenshot capture by Chrome.
+- [security.md](./security.md): Native messaging isolation, content as data, page-driven UI guards, screenshot opt-in, permissions.
+- [release.md](./release.md): Versioning (SemVer, Conventional Commits), npm trusted publishing, Chrome Web Store steps, manifest key replacement on first upload.
