@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { createHash } from 'node:crypto'
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
