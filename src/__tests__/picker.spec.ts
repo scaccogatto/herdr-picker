@@ -48,7 +48,6 @@ beforeEach(() => {
     Element.prototype.scrollIntoView = () => {}
   }
   if (!Element.prototype.animate) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Element.prototype as any).animate = () => ({ cancel: () => {} })
   }
   const btn = document.createElement('button')
