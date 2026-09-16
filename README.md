@@ -113,7 +113,7 @@ Any page open in the browser, including a malicious tab, can send requests to `h
 npm install
 npm run build          # host + CLI, then extension
 npm run typecheck      # tsc --noEmit
-npm run lint           # eslint
+npm run lint           # oxlint
 npm run coverage       # vitest --coverage
 npm run e2e            # playwright (loads unpacked extension, fake herdr socket)
 ```
