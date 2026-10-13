@@ -92,16 +92,16 @@ When the page carries locator attributes (`data-v-inspector`, `data-insp-path`, 
 - **No localhost port.** Chrome spawns the host and only this extension's id, listed in the host manifest's `allowed_origins`, may connect to it. A native host is never a network request, so no page can reach it.
 - **Captured markup is adversarial input.** On the whole web the snippet comes from a page you do not control and ends up in front of an agent with shell access. Attributes are capped at 80 and text at 120 characters, and the prompt states the markup is captured data, not instructions. The markup's code fence is always longer than any backtick run inside it, so the snippet cannot close it early, and the page-controlled values printed outside the fence (URL, source hint, selector path, style values) are flattened to one line and capped (the hint at 200 characters). Nothing else stands between the page and the agent: read what you send.
 - **Screenshot opt-in.** Only captured when you check the switch. Real pixels of the visible tab, cropped to the element plus a 40px margin, written under `<tmpdir>/herdr-picker/` and swept at the next host start once older than 24 hours.
-- **Page-driven UI is blocked.** The popup runs in a shadow root the page can reach, but the picker starts only from `runtime.onMessage` (which the page cannot send), and Send accepts only trusted input events.
-- **Permissions:** `activeTab` (revoked on cross-origin navigation), `scripting`, `nativeMessaging`. No host_permissions, no `externally_connectable`.
+- **Page-driven UI is blocked.** The popup runs in a closed shadow root, so page scripts cannot read the prompt or the agent list (pane ids, titles, branches). The picker starts only from `runtime.onMessage` (which the page cannot send), and every control (Send, typing, agent and spawn rows, the To row, the screenshot switch) accepts only trusted input events. Preferences live in extension storage, out of the page's reach. One residual: like any page key listener, a script that registered window key handlers before the picker opened can still observe the keys you type.
+- **Permissions:** `activeTab` (revoked on cross-origin navigation), `scripting`, `nativeMessaging`, `storage` (the two per-site preferences). No host_permissions, no `externally_connectable`.
 
 ## Limits
 
 - **macOS and Linux only.** The installer knows where Chrome and Chromium look for native messaging hosts on those two; Windows is not supported.
 - **Named sessions:** Pass `--socket <path>` to `install-host` to support multiple herdr sessions at different socket paths.
 - **`activeTab` revoked on navigation.** Press `Ctrl+B` again on a new origin.
-- **No options page (yet).** Per-site preferences (screenshot enabled/disabled, last agent used) persist in `localStorage`.
-- **Not yet:** Firefox, per-site `chrome.storage`, absolutising hints against the agent's cwd, Windows support.
+- **No options page (yet).** Per-site preferences (screenshot enabled/disabled, last agent used) persist in the extension's `chrome.storage.local`, keyed by origin.
+- **Not yet:** Firefox, absolutising hints against the agent's cwd, Windows support.
 
 ## Why not a localhost port
 

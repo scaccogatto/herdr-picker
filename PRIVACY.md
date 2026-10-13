@@ -14,7 +14,7 @@ No data is sent to the developer, to any server or to any third party. What the 
 
 ## What is stored in the browser
 
-Two preferences, in the page's own localStorage, per site: the last agent you targeted and whether the screenshot option is on. Nothing else is stored.
+Two preferences per site, in the extension's own local storage (keyed by the site's origin, not readable by the site): the last agent you targeted and whether the screenshot option is on. Nothing else is stored.
 
 ## Changes and contact
 

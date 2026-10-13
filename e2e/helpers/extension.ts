@@ -173,7 +173,7 @@ export async function pickSaveButton(page: Page): Promise<void> {
   await page.mouse.move(centerX, centerY)
   await page.mouse.click(centerX, centerY)
 
-  await expect(page.locator('[data-herdr-host] .popup')).toBeVisible()
+  await (await pickerUi(page)).waitVisible('.popup')
 }
 
 export function liveSnapshot(status: 'idle' | 'working'): unknown {
@@ -201,6 +201,93 @@ export function liveSnapshot(status: 'idle' | 'working'): unknown {
           agent_session: { value: 's1' },
         },
       ],
+    },
+  }
+}
+
+interface CdpNode {
+  nodeId: number
+  attributes?: string[]
+  children?: CdpNode[]
+  shadowRoots?: CdpNode[]
+}
+
+function findHost(node: CdpNode): CdpNode | null {
+  if (node.attributes?.includes('data-herdr-host') === true) return node
+  for (const child of node.children ?? []) {
+    const found = findHost(child)
+    if (found !== null) return found
+  }
+  return null
+}
+
+export interface Box {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/**
+ * Reaches into the picker's closed shadow root over CDP (Playwright locators
+ * only pierce open roots). Clicks go through page.mouse, so they stay trusted.
+ */
+export interface PickerUi {
+  /** Bounding box of the first match, or null when it is missing or not rendered */
+  box(selector: string): Promise<Box | null>
+  /** Text content of the first match, or null when it is missing */
+  text(selector: string): Promise<string | null>
+  /** Waits until the first match is rendered, then clicks its center */
+  click(selector: string): Promise<void>
+  /** Waits until the first match is rendered */
+  waitVisible(selector: string, timeout?: number): Promise<void>
+}
+
+export async function pickerUi(page: Page): Promise<PickerUi> {
+  const cdp = await page.context().newCDPSession(page)
+
+  async function find(selector: string): Promise<number | null> {
+    const { root } = (await cdp.send('DOM.getDocument', { depth: -1, pierce: true })) as { root: CdpNode }
+    const shadow = findHost(root)?.shadowRoots?.[0]
+    if (shadow === undefined) return null
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: shadow.nodeId, selector })
+    return nodeId === 0 ? null : nodeId
+  }
+
+  async function box(selector: string): Promise<Box | null> {
+    const nodeId = await find(selector)
+    if (nodeId === null) return null
+    try {
+      const { model } = await cdp.send('DOM.getBoxModel', { nodeId })
+      const xs = [model.border[0], model.border[2], model.border[4], model.border[6]] as number[]
+      const ys = [model.border[1], model.border[3], model.border[5], model.border[7]] as number[]
+      const x = Math.min(...xs)
+      const y = Math.min(...ys)
+      return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y }
+    } catch {
+      // no layout box: display:none or detached
+      return null
+    }
+  }
+
+  async function waitVisible(selector: string, timeout = 5000): Promise<void> {
+    await expect.poll(async () => ((await box(selector))?.width ?? 0) > 0, { timeout, message: `${selector} visible` }).toBe(true)
+  }
+
+  return {
+    box,
+    waitVisible,
+    async text(selector) {
+      const nodeId = await find(selector)
+      if (nodeId === null) return null
+      const { outerHTML } = await cdp.send('DOM.getOuterHTML', { nodeId })
+      return outerHTML.replace(/<[^>]*>/g, '')
+    },
+    async click(selector) {
+      await waitVisible(selector)
+      const b = await box(selector)
+      if (b === null) throw new Error(`${selector} disappeared before the click`)
+      await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2)
     },
   }
 }

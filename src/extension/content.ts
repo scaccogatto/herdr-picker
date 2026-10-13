@@ -11,9 +11,7 @@ import type {
 } from '../types.ts'
 import { cropDataUrl } from './crop.ts'
 import { mount } from './picker.ts'
-
-// Marker to detect if the picker is already injected
-const HOST_MARKER = '[data-herdr-host]'
+import { extensionPrefs } from './prefs.ts'
 
 // Margin around the picked element when capturing
 const MARGIN = 40
@@ -28,10 +26,11 @@ async function call(method: string, params: unknown): Promise<unknown> {
 }
 
 /**
- * Check if the picker is already injected on this page.
- * If so, exit early.
+ * Exit early when the picker is already injected in this tab. The check reads
+ * the isolated world's own global, not the DOM: a page could plant a fake
+ * [data-herdr-host] element to keep the picker from mounting.
  */
-if (document.querySelector(HOST_MARKER) !== null) {
+if (window.__herdr !== undefined) {
   // Picker already mounted, do nothing
 } else {
   /**
@@ -104,7 +103,7 @@ if (document.querySelector(HOST_MARKER) !== null) {
   }
 
   // Mount the picker with the relay
-  mount(relay)
+  mount(relay, extensionPrefs(chrome.storage.local, location.origin))
 
   // Listen for the pick command from the background script
   chrome.runtime.onMessage.addListener((message) => {

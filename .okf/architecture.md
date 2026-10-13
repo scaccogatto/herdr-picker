@@ -18,6 +18,7 @@ sources:
   - resource: ../src/extension/agents.ts
   - resource: ../src/extension/crop.ts
   - resource: ../src/extension/content.ts
+  - resource: ../src/extension/prefs.ts
   - resource: ../src/extension/background.ts
   - resource: ../src/compose.ts
   - resource: ../src/types.ts
@@ -37,11 +38,12 @@ Four processes: the page (content script and picker, isolated world, top frame o
 | File | Responsibility |
 |---|---|
 | **Browser: content script + picker (isolated world, top frame)** |
-| `src/extension/picker.ts` | Shadow-DOM popup: outline and chip on hover, shift+click multi-select (up to 5 elements total), popup with To field, agent list, prompt textarea, in-flight status polling. Exports `mount(relay)`, the `Relay`/`RelayReply<T>` types, and `window.__herdr` (debug/e2e API). No hotkey listener: picking is armed by `window.__herdr.start()`, which toggles idle to picking. |
+| `src/extension/picker.ts` | Closed shadow-DOM popup: outline and chip on hover, shift+click multi-select (up to 5 elements total), popup with To field, agent list, prompt textarea, in-flight status polling. Exports `mount(relay, prefs)` (returns the closed shadow root to its caller), the `Relay`/`RelayReply<T>`/`PrefStore`/`LastTarget` types, and `window.__herdr` (debug/e2e API). No hotkey listener: picking is armed by `window.__herdr.start()`, which toggles idle to picking. |
 | `src/extension/dom.ts` | Pure DOM: `deepElementFromPoint` (shadow-aware hit test, excludes the picker's own overlay host), `sourceHint` (locator attributes, then Vue/React runtime introspection), `selectorPath` (up to 6 segments, crosses shadow boundaries with ` >>> `), `trimHtml`/`styleSummary`/`describeElement`, `popupPathLabel`, `spawnHint`, `truncateStart`, `stripHintSuffix`. No `parseHotkey`/`matchesHotkey`. |
 | `src/extension/agents.ts` | Pure state: `groupAgents` (by workspace), `selectableIds`, `pickAgent` (preselection order: last used pane, then last used session, then an idle/done agent in the focused workspace, then any agent in it, then the focused agent, then the first selectable one), `devWorkspaceLabel`. |
 | `src/extension/crop.ts` | Pure image: `cropRegion` (CSS-pixel rect plus margin to device pixels, width/height clamped 16..4000), `cropDataUrl` (decodes a data URL image, crops via canvas, returns base64 PNG without the `data:` prefix). |
-| `src/extension/content.ts` | Content script: builds the `Relay` by messaging the service worker (`chrome.runtime.sendMessage`), mounts the picker once per page (`HOST_MARKER` dedupe), and listens for `{ type: 'pick' }` from the background with no sender check. |
+| `src/extension/content.ts` | Content script: builds the `Relay` by messaging the service worker (`chrome.runtime.sendMessage`), mounts the picker once per page (deduped on the isolated world's `window.__herdr`, not on a DOM marker the page could plant) with `extensionPrefs(chrome.storage.local, location.origin)`, and listens for `{ type: 'pick' }` from the background with no sender check. |
+| `src/extension/prefs.ts` | `extensionPrefs(area, origin)`: the picker's `PrefStore` over `chrome.storage.local`, keys `last:<origin>` and `shot:<origin>`; failed reads resolve to the defaults, failed writes are dropped. |
 | **Service worker (Chrome's process)** |
 | `src/extension/background.ts` | `callHost(method, params)` lazily opens `chrome.runtime.connectNative(HOST_NAME)`, correlates replies by a `crypto.randomUUID()` id in a `pending` map, and disconnects after 60s idle. `onMessage` requires `sender.id === chrome.runtime.id`, then routes `{ type: 'capture' }` to `chrome.tabs.captureVisibleTab` and `{ type: 'host', method, params }` to `callHost`. `commands.onCommand('pick')` and `action.onClicked` inject `content.js` and send it `{ type: 'pick' }`. Exposes `__herdrPick` for e2e. |
 | **Native host (Node child process)** |
@@ -119,7 +121,7 @@ One `vite.config.ts`, two modes, run together by `npm run build` (`vite build &&
 
 1. `Ctrl+B` (or the toolbar icon) fires `commands.onCommand('pick')` or `action.onClicked` in the service worker.
 2. `pickInTab` injects `content.js` and sends it `{ type: 'pick' }`.
-3. `content.ts`'s `HOST_MARKER` check skips remounting if the picker is already on the page; either way, the mounted picker's `onMessage` listener calls `window.__herdr.start()`, which toggles: idle to picking, picking to idle.
+3. `content.ts`'s `window.__herdr` check skips remounting if the picker is already on the page; either way, the mounted picker's `onMessage` listener calls `window.__herdr.start()`, which toggles: idle to picking, picking to idle.
 4. On click, the picker calls `describeElement` (`dom.ts`) and opens the popup; `relay.state()` loads the agent list.
 5. On send, the picker builds a `PromptRequest` from `typed.trim()`, the trusted-input copy, not `textarea.value`, and calls `relay.prompt(body)` (spawning first via `relay.spawn` when a `+ agent here`/`+ agent in worktree` row was chosen; that is a second request after the spawn succeeds).
 6. `content.ts` forwards `{ type: 'host', method, params }`; `background.ts` relays it over the native port as `{ id, method, params }`.
