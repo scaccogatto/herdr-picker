@@ -29,7 +29,7 @@ export default defineConfig(({ mode }): ViteUserConfig => {
         external: [/^node:/],
       },
       minify: false,
-      target: 'node20',
+      target: 'node22',
     },
     test: {
       include: ['src/__tests__/**/*.spec.ts'],
@@ -38,6 +38,9 @@ export default defineConfig(({ mode }): ViteUserConfig => {
         include: ['src/**'],
         exclude: ['src/__tests__/**'],
         reporter: ['text', 'json-summary'],
+        // A floor a little under the current numbers (lines ~65%), so coverage cannot silently drop;
+        // picker.ts's browser-only paths are covered by the Playwright suite instead
+        thresholds: { lines: 60, statements: 60, functions: 65, branches: 50 },
       },
     },
   }

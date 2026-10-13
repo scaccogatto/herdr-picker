@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { composePrompt, renderAttachment } from './compose.ts'
@@ -17,8 +17,34 @@ import type {
   WorkspaceRow,
 } from './types.ts'
 
-/** Default directory for oversized element snippet attachments */
-export const ATTACHMENT_DIR = join(tmpdir(), 'herdr-picker')
+/**
+ * Default directory for oversized element snippet attachments and screenshots:
+ * per user (suffixed with the uid where the platform has one), since on Linux
+ * the system temp directory is shared by every local user
+ */
+export const ATTACHMENT_DIR = join(tmpdir(), process.getuid === undefined ? 'herdr-picker' : `herdr-picker-${process.getuid()}`)
+
+/**
+ * Makes sure dir is a real directory only the current user can enter: creates
+ * it 0700, refuses a symlink, a non-directory or (where uids exist) a
+ * directory owned by someone else, and tightens a looser mode on one we own
+ */
+export async function ensurePrivateDir(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true, mode: 0o700 })
+  const info = await lstat(dir)
+  if (info.isSymbolicLink()) throw new Error(`refusing attachment dir ${dir}: it is a symlink`)
+  if (!info.isDirectory()) throw new Error(`refusing attachment dir ${dir}: not a directory`)
+  const uid = process.getuid?.()
+  if (uid !== undefined && info.uid !== uid) {
+    throw new Error(`refusing attachment dir ${dir}: owned by uid ${info.uid}, not ${uid}`)
+  }
+  if ((info.mode & 0o077) !== 0) await chmod(dir, 0o700)
+}
+
+/** Writes a new owner-only file, failing rather than following or replacing anything already at filePath */
+async function writePrivateFile(filePath: string, data: string | Buffer): Promise<void> {
+  await writeFile(filePath, data, { mode: 0o600, flag: 'wx' })
+}
 
 function str(x: unknown): string | null {
   return typeof x === 'string' ? x : null
@@ -124,11 +150,11 @@ export async function getState(socketPath: string, env: NodeJS.ProcessEnv = proc
   }
 }
 
-/** Writes an attachment markdown file under dir, returning its absolute path */
+/** Writes an owner-only attachment markdown file under dir (see ensurePrivateDir), returning its absolute path */
 export async function writeAttachment(content: string, dir: string): Promise<string> {
-  await mkdir(dir, { recursive: true })
+  await ensurePrivateDir(dir)
   const filePath = join(dir, `${Date.now()}-${randomBytes(3).toString('hex')}.md`)
-  await writeFile(filePath, content, 'utf8')
+  await writePrivateFile(filePath, content)
   return filePath
 }
 
@@ -184,8 +210,8 @@ export async function postPrompt(
   if (body.screenshotPng !== undefined) {
     const file = join(opts.attachmentDir, `${Date.now()}-${randomBytes(3).toString('hex')}.png`)
     try {
-      await mkdir(opts.attachmentDir, { recursive: true })
-      await writeFile(file, Buffer.from(body.screenshotPng, 'base64'))
+      await ensurePrivateDir(opts.attachmentDir)
+      await writePrivateFile(file, Buffer.from(body.screenshotPng, 'base64'))
       screenshotPath = file
     } catch (err) {
       console.warn(`[herdr-picker] screenshot failed: ${err instanceof Error ? err.message : String(err)}`)

@@ -34,6 +34,24 @@ export interface Relay {
 
 export interface RelayReply<T> { status: number; body: T | ErrorResponse }
 
+/** The last agent a prompt went to, used to preselect it next time */
+export interface LastTarget {
+  pane_id: string
+  session: string | null
+}
+
+/**
+ * Where the picker keeps its per-site preferences, implemented by the content
+ * script over extension storage: never the page's own localStorage, which the
+ * page can read and rewrite to steer the preselected agent
+ */
+export interface PrefStore {
+  readLast(): Promise<LastTarget | null>
+  writeLast(last: LastTarget): void
+  readShot(): Promise<boolean>
+  writeShot(checked: boolean): void
+}
+
 /** Max total picked elements: the primary plus up to 4 extras */
 const MAX_SELECTION = 5
 
@@ -64,52 +82,9 @@ declare global {
 
 type Mode = 'idle' | 'picking' | 'popup' | 'sending'
 
-const LAST_KEY = 'herdr:last'
-const SHOT_KEY = 'herdr:shot'
 const SVG_NS = 'http://www.w3.org/2000/svg'
 const CHEVRON_DOWN = 'M3 4.5 6 7.5l3-3'
 const CHEVRON_UP = 'M3 7.5 6 4.5l3 3'
-
-interface Last {
-  pane_id: string
-  session: string | null
-}
-
-function readLast(): Last | null {
-  try {
-    const raw = localStorage.getItem(LAST_KEY)
-    if (raw === null) return null
-    const parsed = JSON.parse(raw) as Partial<Last>
-    if (typeof parsed.pane_id !== 'string') return null
-    return { pane_id: parsed.pane_id, session: typeof parsed.session === 'string' ? parsed.session : null }
-  } catch {
-    return null
-  }
-}
-
-function writeLast(last: Last): void {
-  try {
-    localStorage.setItem(LAST_KEY, JSON.stringify(last))
-  } catch {
-    // storage unavailable (private mode, quota) - preselection just falls back next time
-  }
-}
-
-function readShotPref(): boolean {
-  try {
-    return localStorage.getItem(SHOT_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function writeShotPref(checked: boolean): void {
-  try {
-    localStorage.setItem(SHOT_KEY, checked ? '1' : '0')
-  } catch {
-    // storage unavailable (private mode, quota) - preference just won't persist
-  }
-}
 
 function elementLabel(el: Element): string {
   const tag = el.tagName.toLowerCase()
@@ -355,13 +330,18 @@ kbd { display: inline-flex; align-items: center; justify-content: center; height
 }
 `
 
-export function mount(relay: Relay): void {
+/**
+ * Mounts the picker overlay in a closed shadow root and returns that root:
+ * the page sees only the empty host element, while the caller (the content
+ * script's isolated world, or a test) keeps the only reference to the UI
+ */
+export function mount(relay: Relay, prefs: PrefStore): ShadowRoot {
   const host = document.createElement('div')
   host.setAttribute(HOST_ATTR, '')
   host.style.cssText = 'position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;'
   document.body.appendChild(host)
 
-  const shadow = host.attachShadow({ mode: 'open' })
+  const shadow = host.attachShadow({ mode: 'closed' })
   const style = document.createElement('style')
   style.textContent = STYLE
   shadow.appendChild(style)
@@ -436,8 +416,15 @@ export function mount(relay: Relay): void {
   shotCheckbox.type = 'checkbox'
   shotCheckbox.className = 'switch'
   shotCheckbox.setAttribute('role', 'switch')
-  shotCheckbox.checked = readShotPref()
-  shotCheckbox.addEventListener('change', () => writeShotPref(shotCheckbox.checked))
+  // A page-dispatched click must not flip the switch: cancelling the click reverts the toggle
+  shotCheckbox.addEventListener('click', (e) => {
+    if (!e.isTrusted) e.preventDefault()
+  })
+  shotCheckbox.addEventListener('change', (e) => {
+    if (!e.isTrusted) return
+    shotTouched = true
+    prefs.writeShot(shotCheckbox.checked)
+  })
 
   const shotLabel = document.createElement('span')
   shotLabel.textContent = 'Attach screenshot'
@@ -567,6 +554,7 @@ export function mount(relay: Relay): void {
   let expanded = false
   let sendSeq = 0
   let typed = ''
+  let shotTouched = false
 
   let inflightPaneId: string | null = null
   let inflightTitle: string | null = null
@@ -976,7 +964,10 @@ export function mount(relay: Relay): void {
     clampPopup()
   }
 
-  toRow.addEventListener('click', () => setExpanded(!expanded))
+  toRow.addEventListener('click', (e) => {
+    if (!e.isTrusted) return
+    setExpanded(!expanded)
+  })
 
   // --- agents list -----------------------------------------------------------
 
@@ -1034,8 +1025,8 @@ export function mount(relay: Relay): void {
 
     row.append(title, status, branch, pane)
 
-    row.addEventListener('click', () => {
-      if (blocked) return
+    row.addEventListener('click', (e) => {
+      if (!e.isTrusted || blocked) return
       selectedPaneId = agent.pane_id
       updateSelection()
     })
@@ -1068,7 +1059,8 @@ export function mount(relay: Relay): void {
 
     row.append(title, hint)
 
-    row.addEventListener('click', () => {
+    row.addEventListener('click', (e) => {
+      if (!e.isTrusted) return
       selectedPaneId = paneId
       updateSelection()
     })
@@ -1076,7 +1068,7 @@ export function mount(relay: Relay): void {
     return row
   }
 
-  function renderAgents(state: StateResponse): void {
+  function renderAgents(state: StateResponse, last: LastTarget | null = null): void {
     currentStateResponse = state
     screenshotAvailable = state.herdr && state.screenshot === 'available'
     shotRow.style.display = screenshotAvailable ? 'flex' : 'none'
@@ -1098,7 +1090,7 @@ export function mount(relay: Relay): void {
 
     const groups = groupAgents(state)
     selectableAgentIds = [...selectableIds(groups), 'spawn:here', 'spawn:worktree']
-    selectedPaneId = pickAgent(state, readLast())
+    selectedPaneId = pickAgent(state, last)
     const devLabel = devWorkspaceLabel(state)
 
     for (const group of groups) {
@@ -1133,9 +1125,9 @@ export function mount(relay: Relay): void {
   async function loadAgents(token: number): Promise<void> {
     showAgentsLoading()
     try {
-      const data = await relay.state()
+      const [data, last] = await Promise.all([relay.state(), prefs.readLast().catch(() => null)])
       if (token !== pickToken) return
-      renderAgents(data)
+      renderAgents(data, last)
     } catch {
       if (token !== pickToken) return
       renderAgents({ herdr: false, reason: 'network_error', message: 'could not reach herdr' })
@@ -1366,7 +1358,7 @@ export function mount(relay: Relay): void {
         const stillTracking = inflightPaneId === target
         if (stillTracking && !inflightSettled) renderInflightChip()
         if (!(stillTracking && inflightSettled)) showToast(`Sent to ${data.title ?? data.target}`)
-        writeLast({ pane_id: target, session: findSession(target) })
+        prefs.writeLast({ pane_id: target, session: findSession(target) })
         close()
         if (sentPaneId !== target && stillTracking && !inflightSettled) startInflight(sentPaneId, data.title, el)
         return
@@ -1563,4 +1555,13 @@ export function mount(relay: Relay): void {
       else if (mode === 'picking') exitPicking()
     },
   }
+
+  void prefs
+    .readShot()
+    .then((checked) => {
+      if (!shotTouched) shotCheckbox.checked = checked
+    })
+    .catch(() => {})
+
+  return shadow
 }

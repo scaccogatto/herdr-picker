@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, expect, test } from '@playwright/test'
 import type { Harness } from './helpers/extension.ts'
-import { launchExtension, triggerPick, pickSaveButton } from './helpers/extension.ts'
+import { launchExtension, triggerPick, pickSaveButton, pickerUi } from './helpers/extension.ts'
 
 test.skip(!process.env.STORE_ASSETS, 'set STORE_ASSETS=1 to regenerate the Chrome Web Store assets')
 
@@ -96,7 +96,8 @@ test('screenshots', async () => {
   await page.mouse.move(centerX, centerY)
 
   // Wait for hover chip
-  await expect(page.locator('[data-herdr-host] .chip')).toBeVisible({ timeout: 2000 })
+  const ui = await pickerUi(page)
+  await ui.waitVisible('.chip', 2000)
 
   await page.screenshot({ path: join(out, 'screenshot-1.png') })
   const s1 = pngSize(join(out, 'screenshot-1.png'))
@@ -107,18 +108,17 @@ test('screenshots', async () => {
   await pickSaveButton(page)
 
   // The popup shows "loading agents..." until the state arrives from the host; wait for the To row
-  await expect(page.locator('[data-herdr-host] .to-row')).toBeVisible()
-  const textarea = page.locator('[data-herdr-host] .popup textarea')
-  await textarea.click()
-  await textarea.pressSequentially('Make this button match our brand purple and show a loading state while saving')
+  await ui.waitVisible('.to-row')
+  await ui.click('.popup textarea')
+  await page.keyboard.type('Make this button match our brand purple and show a loading state while saving')
   await page.screenshot({ path: join(out, 'screenshot-2.png') })
   const s2 = pngSize(join(out, 'screenshot-2.png'))
   expect(s2.w).toBe(1280)
   expect(s2.h).toBe(800)
 
   // Screenshot 3: open agents list
-  await page.locator('[data-herdr-host] .to-row').click()
-  await expect(page.locator('[data-herdr-host] .agents-groups')).toBeVisible()
+  await ui.click('.to-row')
+  await ui.waitVisible('.agents-groups')
   await page.screenshot({ path: join(out, 'screenshot-3.png') })
   const s3 = pngSize(join(out, 'screenshot-3.png'))
   expect(s3.w).toBe(1280)

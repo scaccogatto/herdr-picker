@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -38,3 +42,15 @@ jobs:
 
       - name: E2E
         run: npm run e2e
+
+      # engines.node floor: rerun the unit tests and the built CLI on Node 22,
+      # inside this job so the required check name stays "build"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Test (Node 22)
+        run: |
+          node --version
+          npm test
+          node dist/cli.js --help

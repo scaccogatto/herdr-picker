@@ -4,8 +4,24 @@ All notable changes to this project are documented here. Conventional Commits; a
 
 ## [Unreleased]
 
+### Security
+
+- Prompt: page-controlled values printed outside the markup fence (URL, source hint, selector path, style values) are flattened to one line and capped (hint 200 characters), and every html fence is longer than any backtick run in the snippet, so a hostile page can no longer start top-level prompt lines.
+- Picker: the popup lives in a closed shadow root, so page scripts cannot read the typed prompt or the agent list; agent and spawn rows, the To row and the screenshot switch ignore untrusted events like Send already did.
+- Picker: the last target and the screenshot switch move from the page's localStorage to the extension's `chrome.storage.local`, keyed by origin, so a page cannot preselect the target pane. The extension now asks for the `storage` permission (no install warning). Preferences saved by earlier versions are not carried over.
+- Host: snippets and screenshots go to `<tmpdir>/herdr-picker-<uid>/`, created 0700 with files 0600; the host refuses a symlinked directory or one owned by another user. The old shared `<tmpdir>/herdr-picker/` is no longer used or swept and can be deleted.
+- Installer: `host.sh` single-quotes the node path, host path and `--socket` value, so a `$`, backtick or backslash in them is no longer expanded by `/bin/sh`. Re-run `npx herdr-picker install-host` to regenerate it.
+
+### Changed
+
+- Node 22 is the minimum (`engines.node` `>=22`, host build target `node22`); Node 20 is end of life.
+
 ### Build/Tooling
 
+- Linting moved from ESLint and typescript-eslint to oxlint, and TypeScript to 7 (#4).
+- CI also runs the unit tests and the built CLI on Node 22, and cancels superseded pull request runs. `npm run coverage` enforces a coverage floor.
+- Release: Node pinned to 24.21.0 with its bundled npm (no more `npm install -g npm@latest`), tag-only trigger, the tag must match `package.json` and `manifest.json`, the full lint, typecheck, test, build and e2e gate runs before publishing, and each tag gets a GitHub Release with its changelog section and the extension zip.
+- Dependabot auto-merge: job-scoped permissions, gated on the PR author, and it skips majors and minor bumps of 0.x dependencies.
 - Chrome Web Store material: `store/listing.md` (every dashboard field), `PRIVACY.md`, and `npm run store-assets`, a gated Playwright spec that renders the screenshots, promo tile and store icon from the built extension against the fake herdr.
 
 ## [0.1.1] - 2026-09-09

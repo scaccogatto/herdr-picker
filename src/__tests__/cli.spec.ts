@@ -1,4 +1,5 @@
-import { mkdtempSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -47,7 +48,7 @@ describe('wrapperScript', () => {
   it('generates a shell script without socket path', () => {
     const script = wrapperScript({ nodePath: '/usr/bin/node', hostJs: '/path/to/host.js' })
     expect(script).toContain('#!/bin/sh')
-    expect(script).toContain('exec "/usr/bin/node" "/path/to/host.js"')
+    expect(script).toContain("exec '/usr/bin/node' '/path/to/host.js'")
     expect(script).not.toContain('HERDR_SOCKET_PATH')
     expect(script.endsWith('\n')).toBe(true)
   })
@@ -58,7 +59,7 @@ describe('wrapperScript', () => {
       hostJs: '/path/to/host.js',
       socketPath: '/tmp/herdr.sock',
     })
-    expect(script).toContain('export HERDR_SOCKET_PATH="/tmp/herdr.sock"')
+    expect(script).toContain("export HERDR_SOCKET_PATH='/tmp/herdr.sock'")
   })
 
   it('escapes quotes in socket path', () => {
@@ -67,7 +68,29 @@ describe('wrapperScript', () => {
       hostJs: '/path/to/host.js',
       socketPath: '/path/"quoted"/socket.sock',
     })
-    expect(script).toContain('export HERDR_SOCKET_PATH="/path/\\"quoted\\"/socket.sock"')
+    expect(script).toContain(`export HERDR_SOCKET_PATH='/path/"quoted"/socket.sock'`)
+  })
+
+  it('escapes single quotes in every value', () => {
+    const script = wrapperScript({ nodePath: "/o'brien/node", hostJs: '/h.js', socketPath: "/s'ock" })
+    expect(script).toContain("export HERDR_SOCKET_PATH='/s'\\''ock'")
+    expect(script).toContain("exec '/o'\\''brien/node' '/h.js'")
+  })
+
+  it('passes paths with shell metacharacters through /bin/sh literally', () => {
+    // A directory name /bin/sh would expand or break on if the values were double-quoted or bare
+    const tricky = join(mkdtempSync(join(tmpdir(), 'vph-sh-')), "dir $HOME `id` \\x 'q' \"d\" $(id)")
+    mkdirSync(tricky, { recursive: true })
+    const fakeNode = join(tricky, 'node')
+    writeFileSync(fakeNode, '#!/bin/sh\nprintf "%s\\n" "$1" "$HERDR_SOCKET_PATH"\n')
+    chmodSync(fakeNode, 0o755)
+    const hostJs = join(tricky, 'host.js')
+    const socketPath = join(tricky, 'herdr.sock')
+
+    const wrapper = join(tricky, 'host.sh')
+    writeFileSync(wrapper, wrapperScript({ nodePath: fakeNode, hostJs, socketPath }))
+    const out = execFileSync('/bin/sh', [wrapper], { encoding: 'utf8' })
+    expect(out).toBe(`${hostJs}\n${socketPath}\n`)
   })
 
   it('script is executable as shell', () => {

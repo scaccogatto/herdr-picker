@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync, statSync } from 'node:fs'
 import type { Harness } from './helpers/extension.ts'
-import { launchExtension, triggerPick, pickSaveButton, liveSnapshot } from './helpers/extension.ts'
+import { launchExtension, triggerPick, pickSaveButton, liveSnapshot, pickerUi } from './helpers/extension.ts'
 
 let harness: Harness | undefined
 
@@ -40,17 +40,17 @@ test('sends the picked element to the agent and shows DONE', async () => {
   // Pick the save button
   await pickSaveButton(page)
 
-  // Wait for textarea to be focused (indicates popup is ready)
-  await expect(page.locator('[data-herdr-host] .popup textarea')).toBeFocused({ timeout: 5000 })
+  const ui = await pickerUi(page)
 
   // Wait for screenshot row to be visible (indicates state has been fetched)
-  await expect(page.locator('[data-herdr-host] .shot-row')).toBeVisible({ timeout: 5000 })
+  await ui.waitVisible('.shot-row')
 
-  // Type prompt - textarea is already focused
-  await page.locator('[data-herdr-host] .popup textarea').fill('Make it green')
+  // Type prompt into the textarea (trusted input over CDP)
+  await ui.click('.popup textarea')
+  await page.keyboard.insertText('Make it green')
 
-  // Click the Send button (keyboard events might not be trusted in Playwright)
-  await page.locator('[data-herdr-host] .send-btn').click()
+  // Click the Send button
+  await ui.click('.send-btn')
 
   // Wait for prompt to be sent
   await expect.poll(() => harness!.sentPrompts().length).toBe(1)
@@ -69,7 +69,7 @@ test('sends the picked element to the agent and shows DONE', async () => {
   }
 
   // Wait for DONE chip
-  await expect(page.locator('[data-herdr-host] .inflight-chip.done')).toBeVisible({ timeout: 10_000 })
+  await ui.waitVisible('.inflight-chip.done', 10_000)
 })
 
 test('attaches a real-pixel screenshot when the switch is on', async () => {
@@ -98,18 +98,17 @@ test('attaches a real-pixel screenshot when the switch is on', async () => {
   // Pick the save button
   await pickSaveButton(page)
 
-  // Wait for textarea to be focused (indicates popup is ready)
-  await expect(page.locator('[data-herdr-host] .popup textarea')).toBeFocused({ timeout: 5000 })
+  const ui = await pickerUi(page)
 
   // Check the screenshot checkbox (visible when state reports screenshot available)
-  await expect(page.locator('[data-herdr-host] .shot-row input[type=checkbox]')).toBeVisible({ timeout: 5000 })
-  await page.locator('[data-herdr-host] .shot-row input[type=checkbox]').check()
+  await ui.click('.shot-row input[type=checkbox]')
 
   // Type prompt
-  await page.locator('[data-herdr-host] .popup textarea').fill('Make it green')
+  await ui.click('.popup textarea')
+  await page.keyboard.insertText('Make it green')
 
   // Click the Send button
-  await page.locator('[data-herdr-host] .send-btn').click()
+  await ui.click('.send-btn')
 
   // Wait for prompt to be sent
   await expect.poll(() => harness!.sentPrompts().length).toBe(1)
@@ -145,7 +144,56 @@ test('attaches a real-pixel screenshot when the switch is on', async () => {
   }
 
   // Wait for DONE chip
-  await expect(page.locator('[data-herdr-host] .inflight-chip.done')).toBeVisible({ timeout: 10_000 })
+  await ui.waitVisible('.inflight-chip.done', 10_000)
+})
+
+test('remembers the screenshot switch in extension storage, not in the page', async () => {
+  harness = await launchExtension({ snapshot: () => liveSnapshot('idle') })
+  const { page } = harness
+
+  await triggerPick(harness.context, page)
+  await pickSaveButton(page)
+  const ui = await pickerUi(page)
+  await ui.click('.shot-row input[type=checkbox]')
+
+  const sw = harness.context.serviceWorkers()[0] ?? (await harness.context.waitForEvent('serviceworker'))
+  await expect
+    .poll(() => sw.evaluate(() => chrome.storage.local.get('shot:http://127.0.0.1')))
+    .toEqual({ 'shot:http://127.0.0.1': true })
+  expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([])
+})
+
+test('a hostile page cannot read the popup or steer the target', async () => {
+  const twoAgents = (): unknown => {
+    const snap = liveSnapshot('idle') as { snapshot: { agents: Record<string, unknown>[] } }
+    const first = snap.snapshot.agents[0] ?? {}
+    snap.snapshot.agents.push({ ...first, pane_id: 'w1:p3', terminal_title_stripped: 'Other task', agent_session: { value: 's2' } })
+    return snap
+  }
+  harness = await launchExtension({ snapshot: twoAgents })
+  const { page } = harness
+
+  // The old builds read the preselection from the page's own localStorage
+  await page.evaluate(() => localStorage.setItem('herdr:last', JSON.stringify({ pane_id: 'w1:p3', session: 's2' })))
+
+  await triggerPick(harness.context, page)
+  await pickSaveButton(page)
+  const ui = await pickerUi(page)
+  await ui.waitVisible('.shot-row')
+
+  // The page sees the host element but not its shadow root, so it cannot read or click the agent rows
+  const reach = await page.evaluate(() => {
+    const host = document.querySelector('[data-herdr-host]')
+    return { host: host !== null, shadowRoot: host?.shadowRoot ?? null }
+  })
+  expect(reach).toEqual({ host: true, shadowRoot: null })
+
+  await ui.click('.popup textarea')
+  await page.keyboard.insertText('Make it green')
+  await ui.click('.send-btn')
+
+  await expect.poll(() => harness!.sentPrompts().length).toBe(1)
+  expect(harness.sentPrompts()[0]?.target).toBe('w1:p2')
 })
 
 test('falls back to the clipboard notice when the native host is not installed', async () => {
@@ -163,7 +211,8 @@ test('falls back to the clipboard notice when the native host is not installed',
   await pickSaveButton(page)
 
   // Should show notice with no_host message
-  await expect(page.locator('[data-herdr-host] .agents-notice')).toContainText('no_host')
+  const ui = await pickerUi(page)
+  await expect.poll(() => ui.text('.agents-notice')).toContain('no_host')
 })
 
 test('content.js is a classic script', async () => {

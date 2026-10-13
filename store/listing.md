@@ -86,6 +86,12 @@ nativeMessaging:
 Connects to the local native messaging host the user installs with "npx herdr-picker install-host". The host relays the picked element and the prompt to herdr's Unix socket on the user's machine. It is the extension's only channel out; there is no server.
 ```
 
+storage:
+
+```
+Keeps two per-site preferences on the user's machine, keyed by the site's origin: the last agent the user sent to and whether the screenshot option is on. Nothing else is stored and nothing leaves the machine. Extension storage keeps these out of the page's reach, unlike the page's own localStorage.
+```
+
 Host permissions: none declared, the field stays empty.
 
 **Remote code**: "No, I am not using remote code" (every script is bundled in the package; no eval, no remote scripts).
