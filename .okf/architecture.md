@@ -4,8 +4,8 @@ title: herdr-picker module design
 description: Extension, native host, and CLI split between browser and Node; relay-based picker; screenshot captured by the service worker
 tags: [extension, native-messaging, chrome, modules, architecture]
 generated:
-  by: claude/sonnet-5
-  at: 2026-09-09
+  by: claude/opus-5-5
+  at: 2026-10-13
 status: stable
 sources:
   - resource: ../README.md

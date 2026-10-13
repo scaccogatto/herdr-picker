@@ -4,8 +4,8 @@ title: Security boundaries
 description: Native messaging isolation, page content as data, screenshot opt-in, a closed shadow root with trusted-event guards
 tags: [security, extension, native-messaging, data-handling]
 generated:
-  by: claude/sonnet-5
-  at: 2026-09-09
+  by: claude/opus-5-5
+  at: 2026-10-13
 status: stable
 sources:
   - resource: ../README.md

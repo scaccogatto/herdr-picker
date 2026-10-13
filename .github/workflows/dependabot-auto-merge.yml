@@ -2,25 +2,37 @@ name: Dependabot auto-merge
 
 on: pull_request
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
         id: metadata
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - if: >
-          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
-          steps.metadata.outputs.update-type == 'version-update:semver-minor'
-        run: gh pr merge --auto --squash "${{ github.event.pull_request.number }}"
+      # Queue auto-merge (it waits for the required checks) unless an update is
+      # semver-major, or a minor bump of a 0.x dependency (breaking under semver).
+      # Grouped PRs are checked dependency by dependency.
+      - name: Enable auto-merge for safe updates
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          UPDATED: ${{ steps.metadata.outputs.updated-dependencies-json }}
+        run: |
+          UNSAFE=$(printf '%s' "$UPDATED" | jq '[.[] | select(
+            .updateType == "version-update:semver-major"
+            or (.updateType == "version-update:semver-minor" and ((.prevVersion // "") | startswith("0.")))
+            or (.updateType == null)
+          )] | length')
+          if [ "$UNSAFE" != "0" ]; then
+            echo "skipping: $UNSAFE update(s) are major, a 0.x minor, or of unknown type"
+            exit 0
+          fi
+          gh pr merge --auto --squash "$PR_URL"
