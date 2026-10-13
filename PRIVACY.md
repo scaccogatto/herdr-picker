@@ -8,7 +8,7 @@ Nothing is read from any page until you trigger the picker on it (the keyboard s
 
 ## Where it goes
 
-That data is handed to the native messaging host, a process on your computer that Chrome starts and that only this extension can reach. The host passes it to herdr through herdr's local Unix socket, as a prompt for the agent pane you chose. Screenshots and oversized snippets are written to a temporary directory on your machine (`herdr-picker` under the system temp directory) so the agent can read them; the host deletes files older than 24 hours each time it starts.
+That data is handed to the native messaging host, a process on your computer that Chrome starts and that only this extension can reach. The host passes it to herdr through herdr's local Unix socket, as a prompt for the agent pane you chose. Screenshots and oversized snippets are written to a temporary directory on your machine (`herdr-picker-<uid>` under the system temp directory, readable only by your user account) so the agent can read them; the host deletes files older than 24 hours each time it starts.
 
 No data is sent to the developer, to any server or to any third party. What the agent does with the prompt is governed by that agent and by herdr, both running under your account on your machine.
 

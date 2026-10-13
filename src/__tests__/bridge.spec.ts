@@ -1,10 +1,11 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, mkdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { readdir, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, afterEach } from 'vitest'
 import { HerdrError } from '../herdr.ts'
 import {
+  ATTACHMENT_DIR,
   absolutizeHint,
   cleanupAttachments,
   getState,
@@ -360,6 +361,40 @@ describe('postPrompt', () => {
     const files = await readdir(attachmentDir)
     expect(files.some((f) => f.endsWith('.png'))).toBe(true)
   })
+
+  it('writes the screenshot owner-only into a fresh owner-only directory', async () => {
+    fake = await startFakeHerdr({
+      'agent.prompt': () => ({ type: 'agent_prompted', agent: { terminal_title_stripped: 'my agent' } }),
+    })
+    attachmentDir = join(mkdtempSync(join(tmpdir(), 'vph-att-')), 'fresh')
+
+    const result = await postPrompt(
+      { target: 'w1:p1', prompt: 'test', element, screenshotPng: 'iVBORw0KGgo=' },
+      { socketPath: fake.socketPath, inlineMaxChars: 100000, roots: [], attachmentDir },
+    )
+
+    expect(statSync(attachmentDir).mode & 0o777).toBe(0o700)
+    expect(statSync(result.screenshot ?? '').mode & 0o777).toBe(0o600)
+  })
+
+  it('skips the screenshot rather than write it through a symlinked directory', async () => {
+    fake = await startFakeHerdr({
+      'agent.prompt': () => ({ type: 'agent_prompted', agent: { terminal_title_stripped: 'my agent' } }),
+    })
+    const base = mkdtempSync(join(tmpdir(), 'vph-att-'))
+    const elsewhere = join(base, 'elsewhere')
+    mkdirSync(elsewhere)
+    attachmentDir = join(base, 'link')
+    symlinkSync(elsewhere, attachmentDir)
+
+    const result = await postPrompt(
+      { target: 'w1:p1', prompt: 'test', element, screenshotPng: 'iVBORw0KGgo=' },
+      { socketPath: fake.socketPath, inlineMaxChars: 100000, roots: [], attachmentDir },
+    )
+
+    expect(result.screenshot).toBeNull()
+    expect(await readdir(elsewhere)).toEqual([])
+  })
 })
 
 describe('writeAttachment', () => {
@@ -369,6 +404,44 @@ describe('writeAttachment', () => {
     expect(filePath.startsWith(dir)).toBe(true)
     const content = await import('node:fs/promises').then((fs) => fs.readFile(filePath, 'utf8'))
     expect(content).toBe('hello world')
+  })
+
+  it('creates the directory owner-only and the file owner-only', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'vph-wa-')), 'a', 'b')
+    const filePath = await writeAttachment('secret', dir)
+    expect(statSync(dir).mode & 0o777).toBe(0o700)
+    expect(statSync(filePath).mode & 0o777).toBe(0o600)
+  })
+
+  it('tightens an existing group- or world-readable directory it owns', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vph-wa-'))
+    chmodSync(dir, 0o755)
+    await writeAttachment('secret', dir)
+    expect(statSync(dir).mode & 0o777).toBe(0o700)
+  })
+
+  it('refuses a directory that is a symlink', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'vph-wa-'))
+    const target = join(base, 'target')
+    mkdirSync(target)
+    const link = join(base, 'link')
+    symlinkSync(target, link)
+    await expect(writeAttachment('secret', link)).rejects.toThrow(/symlink|not a directory/)
+    expect(await readdir(target)).toEqual([])
+  })
+
+  it('refuses a path that is a regular file', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'vph-wa-'))
+    const file = join(base, 'file')
+    writeFileSync(file, '')
+    await expect(writeAttachment('secret', file)).rejects.toThrow()
+  })
+})
+
+describe('ATTACHMENT_DIR', () => {
+  it('is per user under the system temp directory', () => {
+    const uid = process.getuid?.()
+    expect(ATTACHMENT_DIR).toBe(join(tmpdir(), uid === undefined ? 'herdr-picker' : `herdr-picker-${uid}`))
   })
 })
 
