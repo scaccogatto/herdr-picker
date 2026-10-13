@@ -30,15 +30,20 @@ export function hostManifest(opts: { hostScript: string; extensionId: string }):
   }
 }
 
-/** Shell wrapper script that sets env and execs the host */
+/** Quotes a value for /bin/sh: single quotes, with each embedded ' written as '\'' */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+/** Shell wrapper script that sets env and execs the host; every value is single-quoted, so /bin/sh expands nothing in it */
 export function wrapperScript(opts: { nodePath: string; hostJs: string; socketPath?: string }): string {
   const lines: string[] = ['#!/bin/sh']
 
   if (opts.socketPath !== undefined) {
-    lines.push(`export HERDR_SOCKET_PATH="${opts.socketPath.replace(/"/g, '\\"')}"`)
+    lines.push(`export HERDR_SOCKET_PATH=${shellQuote(opts.socketPath)}`)
   }
 
-  lines.push(`exec "${opts.nodePath}" "${opts.hostJs}"`)
+  lines.push(`exec ${shellQuote(opts.nodePath)} ${shellQuote(opts.hostJs)}`)
   lines.push('')
 
   return lines.join('\n')

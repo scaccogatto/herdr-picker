@@ -57,7 +57,7 @@ Four processes: the page (content script and picker, isolated world, top frame o
 | `src/herdr.ts` | Socket client: `request()` opens one `net` connection per call, writes one NDJSON line, resolves on the first `\n`-terminated reply line, then ends the socket. `HerdrError { code }`, `httpStatus(code)`, `resolveSocketPath`. No `subscribe`. |
 | `src/validate.ts` | `validateElement`, `validatePrompt` (prompt at most 20000 chars, at most 4 `extras`, optional `screenshotPng` at most 8,000,000 base64 characters matching a base64-charset regex), `validateSpawn` (`{ mode: 'here' \| 'worktree', name?, branch? }`). No frame-size caps here; those are `native.ts`'s. |
 | **CLI and installer** |
-| `src/cli.ts` | `extensionIdFromKey` (sha256 of the manifest's base64 `key`, first 16 bytes, each hex digit remapped `a`-`p`), `hostManifest`, `wrapperScript`, `browserDirs` (macOS and Linux only), `configDir`, `installHost`, `main(argv)`. Locates `host.js` and `extension/manifest.json` next to itself via `dirname(fileURLToPath(import.meta.url))`, and runs `main` only when `realpathSync(process.argv[1])` equals its own resolved path, so importing the module doesn't auto-run it. |
+| `src/cli.ts` | `extensionIdFromKey` (sha256 of the manifest's base64 `key`, first 16 bytes, each hex digit remapped `a`-`p`), `hostManifest`, `wrapperScript` (single-quotes the node path, host path and socket path, so `/bin/sh` expands nothing in them), `browserDirs` (macOS and Linux only), `configDir`, `installHost`, `main(argv)`. Locates `host.js` and `extension/manifest.json` next to itself via `dirname(fileURLToPath(import.meta.url))`, and runs `main` only when `realpathSync(process.argv[1])` equals its own resolved path, so importing the module doesn't auto-run it. |
 
 ## Contracts
 
